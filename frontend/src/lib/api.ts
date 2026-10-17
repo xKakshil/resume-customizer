@@ -156,6 +156,7 @@ export interface TailorParams {
   tone: Tone;
   extra_instructions: string;
   resume_filename: string;
+  confirmed_skills: { keyword: string; context: string }[];
 }
 
 export function tailorStream(
@@ -208,6 +209,13 @@ export function coverLetterStream(params: CoverLetterParams, onDelta: (t: string
 
 // ---------------------------------------------------------------------------
 export type ExportFormat = "pdf" | "docx" | "txt" | "md" | "tex";
+
+export const fetchJD = (url: string) =>
+  request<{ job_description: string; title: string; company: string; source: string; url: string; removed_lines: number }>("/api/jd/fetch", {
+    method: "POST",
+    headers: headers(),
+    body: JSON.stringify({ url }),
+  });
 
 export const cleanJD = (job_description: string) =>
   request<{ job_description: string; removed_lines: number }>("/api/jd/clean", {

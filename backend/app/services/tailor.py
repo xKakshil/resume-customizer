@@ -81,7 +81,7 @@ def parse_tailored(text: str) -> TailoredResume:
 
 async def _repair_via_llm(req: TailorRequest, jd: str, resume: str) -> tuple[TailoredResume, str, str]:
     """Second attempt in strict JSON mode with lower temperature."""
-    messages = build_tailor_messages(jd, resume, req.sections, req.tone, req.extra_instructions)
+    messages = _messages(req, jd, resume)
     for temp in (0.2, 0.0):
         text, provider = await get_chain().complete(messages, json_mode=True, temperature=temp)
         try:
@@ -120,10 +120,20 @@ def _restore_order(bullets: list[Bullet], resume: str) -> list[Bullet]:
     return sorted(bullets, key=pos)
 
 
-def apply_guardrails(r: TailoredResume, req: TailorRequest, resume: str, jd_keywords: list[kw.WeightedKeyword]) -> dict:
-    report = {"removed_skills": [], "flagged_bullets": 0, "removed_details": [], "locked_sections": [s for s in ("summary", "skills", "experience", "projects") if s not in req.sections]}
+def _ngrams(text: str, n: int = 8) -> set[tuple[str, ...]]:
+    words = re.findall(r"[a-z0-9+#]+", text.lower())
+    return {tuple(words[i:i + n]) for i in range(len(words) - n + 1)}
+
+
+def apply_guardrails(r: TailoredResume, req: TailorRequest, resume: str, jd_keywords: list[kw.WeightedKeyword], jd: str = "") -> dict:
+    report = {"removed_skills": [], "flagged_bullets": 0, "removed_details": [], "copied_from_jd": 0,
+              "confirmed_used": [c.keyword for c in req.confirmed_skills],
+              "locked_sections": [s for s in ("summary", "skills", "experience", "projects") if s not in req.sections]}
+    original_resume = resume
+    resume = evidence_text(req, resume)  # confirmed skills count as evidence from here on
     resume_lex = kw.resume_skills(resume)
     resume_nums = set(_NUM_RE.findall(resume))
+    jd_grams = _ngrams(jd) if jd else set()
 
     # 1. Locked sections → originals.
     if "summary" not in req.sections:
@@ -134,7 +144,7 @@ def apply_guardrails(r: TailoredResume, req: TailorRequest, resume: str, jd_keyw
             for item in getattr(r, key):
                 for b in item.bullets:
                     b.tailored, b.keywords = b.original, []
-                item.bullets = _restore_order(item.bullets, resume)
+                item.bullets = _restore_order(item.bullets, original_resume)
                 item.rationale = ""
 
     # 2. Dates and locations must come from the resume (models like to "complete" them).
@@ -181,6 +191,10 @@ def apply_guardrails(r: TailoredResume, req: TailorRequest, resume: str, jd_keyw
                 flags.append("unverified_number:" + ",".join(sorted(new_nums)))
             if new_tech:
                 flags.append("unverified_skill:" + ",".join(sorted(new_tech)))
+            # A recruiter red flag: wording lifted straight from the job post (8+ words in a row).
+            if jd_grams and (_ngrams(b.tailored) & jd_grams) - _ngrams(b.original):
+                flags.append("copied_from_jd")
+                report["copied_from_jd"] += 1
             if flags:
                 b.flags = flags
                 report["flagged_bullets"] += 1
@@ -231,7 +245,7 @@ def build_result(r: TailoredResume, req: TailorRequest, jd: str, resume: str, pr
     if not (r.experience or r.projects or r.education or r.skills.groups):
         raise LLMError("The AI couldn't find resume content to tailor. Check that the uploaded file is your resume.", code="llm_empty_resume")
     jd_keywords = kw.extract_jd_keywords(jd)
-    guard = apply_guardrails(r, req, resume, jd_keywords)
+    guard = apply_guardrails(r, req, resume, jd_keywords, jd)
     tailored_text = to_text(r)
     scores = compute_scores(jd, resume, tailored_text, jd_keywords)
     scores["evidence"] = skill_evidence(r, scores["match"]["after"])
@@ -249,10 +263,21 @@ def build_result(r: TailoredResume, req: TailorRequest, jd: str, resume: str, pr
 # --------------------------------------------------------------------------- #
 # Entry points
 # --------------------------------------------------------------------------- #
+def _messages(req: TailorRequest, jd: str, resume: str) -> list[dict]:
+    return build_tailor_messages(jd, resume, req.sections, req.tone, req.extra_instructions,
+                                 [c.model_dump() for c in req.confirmed_skills])
+
+
+def evidence_text(req: TailorRequest, resume: str) -> str:
+    """The resume plus anything the user explicitly confirmed — what guardrails accept as true."""
+    extra = "\n".join(f"{c.keyword}: {c.context}".strip(": ") for c in req.confirmed_skills)
+    return f"{resume}\n{extra}" if extra else resume
+
+
 async def tailor(req: TailorRequest) -> dict:
     started = time.perf_counter()
     jd, resume = validate_inputs(req.job_description, req.resume_text)
-    messages = build_tailor_messages(jd, resume, req.sections, req.tone, req.extra_instructions)
+    messages = _messages(req, jd, resume)
     text, provider = await get_chain().complete(messages, json_mode=True)
     try:
         r, pname, pmodel = parse_tailored(text), provider.name, provider.model
@@ -266,7 +291,7 @@ async def tailor_stream(req: TailorRequest) -> AsyncIterator[tuple[str, dict]]:
     started = time.perf_counter()
     jd, resume = validate_inputs(req.job_description, req.resume_text)
     yield "status", {"stage": "analyzing", "message": "Analysing the job description"}
-    messages = build_tailor_messages(jd, resume, req.sections, req.tone, req.extra_instructions)
+    messages = _messages(req, jd, resume)
 
     buf: list[str] = []
     provider = None

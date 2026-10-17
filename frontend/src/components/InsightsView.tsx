@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle, CheckCircle2, CircleDashed, ShieldCheck, XCircle } from "lucide-react";
-import type { AtsResult, MatchResult, TailoredResume, TailorResult } from "@/lib/types";
-import { cx } from "./ui";
+import { AlertTriangle, Check, CheckCircle2, CircleDashed, ShieldCheck, Sparkles, XCircle } from "lucide-react";
+import type { AtsResult, ConfirmedSkill, MatchResult, TailoredResume, TailorResult } from "@/lib/types";
+import { Button, cx } from "./ui";
 
 /** A ruler from 0–100 with a "before" tick and an "after" marker. */
 export function ScoreRuler({ label, before, after, caption }: { label: string; before: number | null; after?: number | null; caption: string }) {
@@ -114,7 +114,87 @@ function Panel({ title, children, aside }: { title: string; children: React.Reac
   );
 }
 
-export function InsightsView({ result }: { result: TailorResult }) {
+interface ConfirmProps {
+  confirmed?: ConfirmedSkill[];
+  onConfirm?: (keyword: string, context: string) => void;
+  onUnconfirm?: (keyword: string) => void;
+}
+
+function MissingItem({ m, confirmed, onConfirm, onUnconfirm }: { m: TailoredResume["missing_keywords"][number]; confirmed?: ConfirmedSkill } & Omit<ConfirmProps, "confirmed">) {
+  const [open, setOpen] = useState(false);
+  const [note, setNote] = useState("");
+  return (
+    <li className="flex gap-3">
+      <span
+        className={cx(
+          "mt-0.5 h-fit shrink-0 rounded-sm px-1.5 py-0.5 text-[11.5px] font-medium",
+          m.importance === "high" ? "bg-red-wash text-red" : m.importance === "medium" ? "bg-amber-wash text-amber" : "bg-desk-2 text-muted",
+        )}
+      >
+        {m.importance === "high" ? "Must-have" : m.importance === "medium" ? "Helpful" : "Bonus"}
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <span className="font-medium">{m.keyword}</span>
+          {onConfirm &&
+            (confirmed ? (
+              <span className="flex items-center gap-2 text-[12.5px]">
+                <span className="inline-flex items-center gap-1 font-medium text-green">
+                  <Check className="size-3.5" /> You have this
+                </span>
+                <button onClick={() => onUnconfirm?.(m.keyword)} className="text-muted underline-offset-2 hover:text-red hover:underline">
+                  Undo
+                </button>
+              </span>
+            ) : (
+              !open && (
+                <button onClick={() => setOpen(true)} className="text-[12.5px] font-medium text-blue underline-offset-2 hover:underline">
+                  I have this
+                </button>
+              )
+            ))}
+        </div>
+        {m.suggestion && <p className="text-[13.5px] text-ink-2">{m.suggestion}</p>}
+        {confirmed?.context && <p className="mt-0.5 text-[13px] italic text-muted">“{confirmed.context}”</p>}
+        {open && !confirmed && (
+          <form
+            className="mt-2 flex flex-wrap gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              onConfirm?.(m.keyword, note.trim());
+              setOpen(false);
+            }}
+          >
+            <input
+              autoFocus
+              value={note}
+              maxLength={300}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder={`Where did you use ${m.keyword}? (optional)`}
+              aria-label={`Where you used ${m.keyword}`}
+              className="h-9 min-w-0 flex-1 rounded-md border border-rule bg-paper px-2.5 text-sm outline-none focus:border-blue"
+            />
+            <Button size="sm" type="submit">
+              Confirm
+            </Button>
+            <Button size="sm" variant="ghost" type="button" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+          </form>
+        )}
+      </div>
+    </li>
+  );
+}
+
+export function InsightsView({
+  result,
+  confirmed,
+  onConfirm,
+  onUnconfirm,
+  onRegenerate,
+  busy,
+}: { result: TailorResult; onRegenerate?: () => void; busy?: boolean } & ConfirmProps) {
   const { scores, resume: r, guardrails: g, meta } = result;
   const [which, setWhich] = useState<"after" | "before">("after");
   const match = (which === "after" ? scores.match.after : scores.match.before) ?? scores.match.before;
@@ -182,24 +262,24 @@ export function InsightsView({ result }: { result: TailorResult }) {
 
       {r.missing_keywords.length > 0 && (
         <Panel title="Worth adding — if it's true">
-          <ul className="space-y-2.5">
+          <p className="-mt-1 mb-3 text-[13.5px] text-ink-2">
+            Tailor never adds skills on its own. If you genuinely have one of these, mark it — the next version will include it, using your note for context.
+          </p>
+          <ul className="space-y-3">
             {r.missing_keywords.map((m) => (
-              <li key={m.keyword} className="flex gap-3">
-                <span
-                  className={cx(
-                    "mt-0.5 h-fit shrink-0 rounded-sm px-1.5 py-0.5 text-[11.5px] font-medium",
-                    m.importance === "high" ? "bg-red-wash text-red" : m.importance === "medium" ? "bg-amber-wash text-amber" : "bg-desk-2 text-muted",
-                  )}
-                >
-                  {m.importance === "high" ? "Must-have" : m.importance === "medium" ? "Helpful" : "Bonus"}
-                </span>
-                <div>
-                  <div className="font-medium">{m.keyword}</div>
-                  {m.suggestion && <p className="text-[13.5px] text-ink-2">{m.suggestion}</p>}
-                </div>
-              </li>
+              <MissingItem key={m.keyword} m={m} confirmed={confirmed?.find((c) => c.keyword.toLowerCase() === m.keyword.toLowerCase())} onConfirm={onConfirm} onUnconfirm={onUnconfirm} />
             ))}
           </ul>
+          {onRegenerate && (confirmed?.length ?? 0) > 0 && (
+            <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-rule-soft pt-4">
+              <span className="text-[13.5px] text-ink-2">
+                {confirmed!.length} confirmed skill{confirmed!.length > 1 ? "s" : ""}: {confirmed!.map((c) => c.keyword).join(", ")}
+              </span>
+              <Button size="sm" variant="primary" onClick={onRegenerate} disabled={busy}>
+                <Sparkles className="size-3.5" /> Generate a version with them
+              </Button>
+            </div>
+          )}
         </Panel>
       )}
 
@@ -221,9 +301,10 @@ export function InsightsView({ result }: { result: TailorResult }) {
             </p>
             <p>
               {g.flagged_bullets
-                ? `${g.flagged_bullets} line${g.flagged_bullets > 1 ? "s" : ""} mention a number or tool that isn't in your original — they're marked "Check" on the resume. Keep them only if accurate.`
+                ? `${g.flagged_bullets} line${g.flagged_bullets > 1 ? "s" : ""} ${g.copied_from_jd ? "mention something not in your original or copy wording from the job post" : "mention a number or tool that isn't in your original"} — they're marked "Check" on the resume. Keep them only if accurate.`
                 : "No new numbers or tools were introduced."}
             </p>
+            {(g.confirmed_used?.length ?? 0) > 0 && <p>Used skills you confirmed: {g.confirmed_used!.join(", ")}.</p>}
             {(g.removed_details?.length ?? 0) > 0 && <p>Removed details the AI added that aren&apos;t in your resume: {g.removed_details!.join("; ")}.</p>}
             {g.locked_sections.length > 0 && <p>Left untouched as requested: {g.locked_sections.join(", ")}.</p>}
           </div>

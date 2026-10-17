@@ -144,6 +144,13 @@ class TailoredResume(Lenient):
 # ----------------------------------------------------------------------------- #
 # API requests
 # ----------------------------------------------------------------------------- #
+class ConfirmedSkill(BaseModel):
+    """A skill the user confirmed they have even though the resume doesn't show it."""
+
+    keyword: str = Field(min_length=1, max_length=60)
+    context: str = Field(default="", max_length=300)
+
+
 class TailorRequest(BaseModel):
     job_description: str
     resume_text: str
@@ -151,6 +158,7 @@ class TailorRequest(BaseModel):
     tone: Tone = "balanced"
     extra_instructions: str = Field(default="", max_length=500)
     resume_filename: str = ""
+    confirmed_skills: list[ConfirmedSkill] = Field(default_factory=list, max_length=20)
 
     @field_validator("sections")
     @classmethod

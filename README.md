@@ -33,7 +33,7 @@ Paste a job description, upload your resume (PDF or DOCX), and get an **honest, 
 
 | Requirement | Implementation |
 |---|---|
-| JD input with validation | Textarea with live character count; empty / < 100 chars / > 20,000 chars / "not actually a JD" are all rejected with specific messages (client **and** server). |
+| JD input with validation | Paste or **import from a job-posting link**. Textarea with live character count; empty / < 100 chars / > 20,000 chars / "not actually a JD" are all rejected with specific messages (client **and** server). |
 | Resume upload (PDF + DOCX) | Drag-and-drop or picker, upload progress bar, shows **file name, size, type, pages and word count**, plus parse warnings. Text is extracted on the backend with `pdfplumber` / `python-docx`. |
 | LLM customization | Rewrites the summary, groups and orders skills by JD relevance, reorders and rephrases every experience/project bullet with JD keywords, and lists missing keywords with honest suggestions. |
 | Output display | The tailored resume is rendered as a clean "sheet of paper", with JD keywords highlighted. |
@@ -56,6 +56,10 @@ Paste a job description, upload your resume (PDF or DOCX), and get an **honest, 
 ### Beyond the brief
 
 - **Truthfulness guardrails** — after the model responds, the server strips any skill the resume doesn't evidence (moving it to "missing keywords"), removes dates or locations that aren't in the original, and flags any rewritten bullet that introduces a number or technology not in the original ("Check: 90% isn't in your original resume"). The model *cannot* silently inflate a resume.
+- **"I have this" — honest gap closing** — every missing keyword has an *I have this* button with an optional note ("used Docker to deploy QuickLink"). Confirmed skills are fed to the next version and accepted by the guardrails as evidence, so a resume can truthfully improve beyond what the original text says.
+- **Copied-from-JD detector** — rewritten bullets that lift 8+ words verbatim from the job post are flagged; recruiters spot (and penalise) parroted JD language.
+- **Import JD from a link** — reads the schema.org `JobPosting` data most job boards embed (Greenhouse, Lever, Workday, Naukri…), falls back to the page's main text, and refuses private/internal addresses (SSRF-safe, redirect-checked, size- and time-limited). Sign-in-walled pages (e.g. LinkedIn) get a clear "paste the text instead".
+- **Local & private mode** — set `LLM_PROVIDERS=ollama` to run on a local model via [Ollama](https://ollama.com), no API key or data leaving the machine.
 - **Job-board clean-up** — pasting a JD strips "Apply now", "Posted 3 days ago", EEO statements and duplicated lines (with Undo), so they don't waste tokens or add fake keywords.
 - **Prompt evaluation harness** — `python -m evals.run_eval` runs the real model over four job descriptions and reports validity, score deltas, guardrail hits, style and keyword-stuffing metrics, with an optional LLM-as-judge grade. See [Evaluating the prompt](#evaluating-the-prompt).
 - **Fit check before tailoring** — as soon as a JD and resume are present you see the baseline match and ATS scores (no LLM call needed).
@@ -84,8 +88,9 @@ Paste a job description, upload your resume (PDF or DOCX), and get an **honest, 
 | Primary | Google AI Studio (Gemini) | `gemini-3.8-flash` | Free tier, fast, strong instruction-following and long-context JSON output. `reasoning_effort=low` keeps latency down. |
 | Fallback | Groq | `llama-3.3-70b-versatile` | Free tier, very fast inference; takes over automatically on rate limits, 5xx or timeouts. |
 | Optional | OpenAI | `gpt-4.1-mini` | Add `openai` to `LLM_PROVIDERS` if you have a key. |
+| Local | Ollama | `llama3.1` (any pulled model) | Fully local and private; add `ollama` to `LLM_PROVIDERS`. |
 
-All three are called through **one** small `httpx` client because they share the OpenAI Chat Completions wire format — no vendor SDKs, easy to swap. Models are configurable via env vars. For development and tests there is also a deterministic `mock` provider (`LLM_PROVIDERS=mock`) so the full app runs without any API key.
+All of these are called through **one** small `httpx` client because they share the OpenAI Chat Completions wire format — no vendor SDKs, easy to swap. Models are configurable via env vars. For development and tests there is also a deterministic `mock` provider (`LLM_PROVIDERS=mock`) so the full app runs without any API key.
 
 ---
 
@@ -151,9 +156,10 @@ flowchart TB
 │   │       ├── export.py          # PDF (reportlab) and DOCX (python-docx)
 │   │       ├── latex.py           # LaTeX export (Overleaf-ready)
 │   │       ├── jd.py              # job-board boilerplate clean-up
+│   │       ├── jd_fetch.py        # import JD from URL (SSRF-safe, JSON-LD aware)
 │   │       └── llm/               # OpenAI-compatible client, provider chain, mock
 │   ├── evals/                     # prompt evaluation harness + sample JDs
-│   ├── tests/                     # 72 pytest tests
+│   ├── tests/                     # 94 pytest tests
 │   ├── Dockerfile
 │   └── .env.example
 ├── frontend/
@@ -175,7 +181,7 @@ flowchart TB
 4. **Prompt.** The system prompt (in `services/prompts.py`) sets a recruiter persona, non-negotiable truthfulness rules, per-section instructions (summary length, XYZ bullet formula, action verbs), the selected sections and tone, and a strict JSON schema. Every rewritten unit carries its **verbatim original**, which powers the diff and the guardrails. The schema's key order follows the page's reading order so the UI can render progressively while streaming.
 5. **Stream.** Tokens stream over SSE (with keep-alive pings so proxies don't cut idle connections). The frontend parses incomplete JSON on every frame and paints the resume as it's written.
 6. **Validate & repair.** The final text is parsed tolerantly (code fences, prose, trailing commas). If it's still invalid, the server retries once in strict JSON mode at lower temperature.
-7. **Guardrails.** Locked sections are restored; unevidenced skills are removed and moved to suggestions; invented dates/locations are removed; bullets that introduce new numbers or tools are flagged; "missing" keywords the resume actually has are dropped.
+7. **Guardrails.** Evidence = the resume **plus skills the user explicitly confirmed**. Locked sections are restored; unevidenced skills are removed and moved to suggestions; invented dates/locations are removed; bullets that introduce new numbers or tools, or copy 8+ words from the JD, are flagged; "missing" keywords the resume actually has are dropped.
 8. **Score again.** The same deterministic scorers run on the tailored resume, so the before/after comparison is apples-to-apples.
 
 ---
@@ -244,6 +250,7 @@ docker run -p 8000:8000 --env-file .env resume-customizer-api
 | `GET` | `/api/health` | Status, configured LLM providers and input limits. |
 | `POST` | `/api/resume/parse` | Multipart `file` (PDF/DOCX ≤ 5 MB) → text, metadata, detected sections, links, warnings. |
 | `POST` | `/api/score` | `{job_description, resume_text}` → match + ATS scores (no LLM). |
+| `POST` | `/api/jd/fetch` | `{url}` → job description imported from a job-posting page (title, company, cleaned text). |
 | `POST` | `/api/jd/clean` | `{job_description}` → JD with job-board boilerplate removed + count. |
 | `POST` | `/api/tailor` | Tailor and return JSON in one response. |
 | `POST` | `/api/tailor/stream` | Same, as SSE: `status` → `delta`… → `result` (or `error`). |
@@ -263,6 +270,7 @@ Tailor request body:
   "sections": ["summary", "skills", "experience", "projects"],
   "tone": "balanced | technical | impact | leadership | concise",
   "extra_instructions": "optional, ≤ 500 chars",
+  "confirmed_skills": [{"keyword": "Kubernetes", "context": "deployed QuickLink on k3s"}],
   "resume_filename": "optional"
 }
 ```
@@ -296,13 +304,17 @@ Change the prompt in `app/services/prompts.py`, rerun, compare reports.
 
 ## Ideas adopted from similar projects
 
-Before finalising, three open-source projects with the same goal were reviewed. What was adopted — and what was deliberately not:
+Before finalising, seven open-source projects with the same goal were reviewed. What was adopted — and what was deliberately not:
 
 | Project | Adopted | Not adopted (and why) |
 |---|---|---|
 | **MatchMyJD** (Python matching engine) | Must-have vs nice-to-have coverage; "skills with evidence" (shown in a bullet vs only listed); JD noise removal. | Embedding-based semantic matching via `sentence-transformers` — pulls in PyTorch (~1 GB), too heavy for a free-tier container; the LLM already handles semantic alignment. |
 | **Resume-Customizer** (Next.js + LaTeX) | LaTeX export + "Open in Overleaf"; prompt rules to never invent dates/locations, avoid keyword stuffing, spell out acronyms once, one category per skill. | Letting the LLM grade the ATS score and instructing it that tailored resumes "should score 30–40 points higher" — that inflates scores by design. Here scoring is deterministic and identical before/after. Also skipped server-side LaTeX compilation and S3 (heavy infra for no user benefit). |
 | **Resume-Tailor** (CLI/TUI) | An evaluation harness with a fixed set of JDs and an LLM-as-judge rubric. | A YAML "experience bank" workflow — a different product (you maintain a master list); this app works from the resume you already have. |
+| **jd-to-resume** (React + FastAPI) | Letting users add context their resume lacks → our *I have this* confirmations. | Feeding the model an AI-generated profile of *inferred* skills — exactly the fabrication the guardrails exist to stop. Only the user can confirm a skill. |
+| **ResumeGPT** (LangChain) | Its critic pass that hunts for "lazy copy-paste from the job posting" → our deterministic copied-from-JD flag; user verification before finalising → accept/revert + confirmations. | Five chain-of-thought LLM calls per resume (slow and costly); one structured call plus deterministic checks does the same job. |
+| **TailorCV** (Ollama CLI) | Importing the JD from a URL; local Ollama provider for privacy. | A second "coherence" LLM pass — doubles latency; guardrails and scoring cover consistency deterministically. |
+| **Tailored-Resume-Generator** (Next.js + FastAPI) | — (LaTeX output and keyword ideas were already covered). | A TF-IDF cosine "ATS score" multiplied by 1.8 — an inflated number; plus spaCy/scikit-learn dependencies for little gain. |
 
 ---
 
@@ -310,7 +322,7 @@ Before finalising, three open-source projects with the same goal were reviewed. 
 
 **Files:** empty file · > 5 MB (checked while streaming the upload, not after) · images, `.txt`, renamed files (magic-byte detection) · legacy `.doc` · password-protected PDF and DOCX · corrupted PDF/DOCX · scanned image-only PDF (explains OCR isn't supported) · > 10 pages · too little text · very long resumes (truncated with a warning) · multi-column/table layouts in DOCX · headers/footers · unmapped glyphs and ligatures · Unicode names in exports and download filenames.
 
-**Inputs:** empty / too short / too long JD · job-board boilerplate in pasted JDs · text that isn't a job description (heuristic + model check) · non-resume uploads (warning) · zero sections selected · prompt injection inside the JD or resume.
+**Inputs:** empty / too short / too long JD · job-board boilerplate in pasted JDs · JD links that are private/internal addresses, unusual ports, redirect loops, sign-in walls, non-HTML, oversized or JavaScript-only pages · text that isn't a job description (heuristic + model check) · non-resume uploads (warning) · zero sections selected · prompt injection inside the JD or resume.
 
 **LLM:** missing API keys (clear 503) · invalid key · rate limits (Retry-After, then failover) · 5xx · timeouts · empty responses · non-JSON or truncated JSON (tolerant parse + strict-mode retry) · `null` fields and invalid enums (coerced) · unsupported request params (dropped and retried) · connection dropped mid-stream · hallucinated skills, numbers, tools, dates and locations (guardrails) · LaTeX special characters (`& % $ # _ { } ~ ^ \`) in exports.
 
@@ -321,7 +333,7 @@ Before finalising, three open-source projects with the same goal were reviewed. 
 ## Testing
 
 ```bash
-cd backend && python -m pytest       # 72 tests
+cd backend && python -m pytest       # 94 tests
 cd frontend && npx tsc --noEmit && npm run lint && npm run build
 ```
 

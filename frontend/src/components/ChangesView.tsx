@@ -87,7 +87,7 @@ function Unit({
           const pf = parseFlag(f);
           return (
             <span key={f} className="inline-flex items-center gap-1 rounded-sm bg-red-wash px-1 text-red">
-              <PenLine className="size-3" /> check {pf.values.join(", ")}
+              <PenLine className="size-3" /> {pf.kind === "copied" ? "copied from job post" : `check ${pf.values.join(", ")}`}
             </span>
           );
         })}

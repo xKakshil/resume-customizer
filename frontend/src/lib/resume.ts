@@ -84,12 +84,23 @@ export function changeCount(r: TailoredResume): { changed: number; total: number
   return { changed, total };
 }
 
-export function parseFlag(flag: string): { kind: "number" | "skill" | "other"; values: string[] } {
+export type Flag = { kind: "number" | "skill" | "copied" | "other"; values: string[] };
+
+export function parseFlag(flag: string): Flag {
   const [kind, rest = ""] = flag.split(":");
   const values = rest.split(",").filter(Boolean);
   if (kind === "unverified_number") return { kind: "number", values };
   if (kind === "unverified_skill") return { kind: "skill", values };
+  if (kind === "copied_from_jd") return { kind: "copied", values };
   return { kind: "other", values };
+}
+
+/** Human-readable note for a guardrail flag. */
+export function flagNote(f: Flag): string {
+  if (f.kind === "number") return `${f.values.join(", ")} isn't in your original resume`;
+  if (f.kind === "skill") return `${f.values.join(", ")} isn't mentioned in your original resume`;
+  if (f.kind === "copied") return "reads like it was copied from the job post";
+  return "verify this line";
 }
 
 export function formatBytes(n: number): string {

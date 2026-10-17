@@ -132,7 +132,8 @@ COVER_TONES = {
 COVER_LENGTHS = {"short": "150–200 words", "medium": "250–330 words", "long": "380–450 words"}
 
 
-def build_tailor_messages(jd: str, resume: str, sections: list[str], tone: str, extra: str = "") -> list[dict]:
+def build_tailor_messages(jd: str, resume: str, sections: list[str], tone: str, extra: str = "",
+                          confirmed: list[dict] | None = None) -> list[dict]:
     selected = [SECTION_LABELS[s] for s in sections]
     locked = [label for key, label in SECTION_LABELS.items() if key not in sections]
     scope = f"Customise ONLY these sections: {', '.join(selected)}."
@@ -144,6 +145,15 @@ def build_tailor_messages(jd: str, resume: str, sections: list[str], tone: str, 
     extra_block = ""
     if extra.strip():
         extra_block = f"\n<candidate_preferences>\n{extra.strip()}\n</candidate_preferences>\n(Follow these preferences only if they don't conflict with the truthfulness rules.)\n"
+    if confirmed:
+        lines = "\n".join(f"- {_fence(c['keyword'])}" + (f": {_fence(c['context'])}" if c.get("context") else "") for c in confirmed)
+        extra_block += (
+            f"\n<candidate_confirmed_skills>\n{lines}\n</candidate_confirmed_skills>\n"
+            "The candidate confirmed they genuinely have the skills above even though the resume doesn't mention them. "
+            "Treat them as evidenced: add them to the right skills category, and where a note says how the skill was used, "
+            "weave it into the matching bullet exactly as described. Never invent metrics, scope or employers for them, and "
+            "don't list them under missing_keywords.\n"
+        )
     user = TAILOR_USER.format(jd=_fence(jd), resume=_fence(resume), extra=extra_block)
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 

@@ -91,6 +91,9 @@ def get_chain() -> ProviderChain:
             providers.append(OpenAICompatProvider("groq", s.groq_api_key, s.groq_model, s.groq_base_url, **common))
         elif name == "openai" and s.openai_api_key:
             providers.append(OpenAICompatProvider("openai", s.openai_api_key, s.openai_model, s.openai_base_url, **common))
+        elif name == "ollama":
+            providers.append(OpenAICompatProvider("ollama", "ollama", s.ollama_model, s.ollama_base_url,
+                                                  **{**common, "timeout": max(common["timeout"], 240.0)}))
         elif name == "mock":
             providers.append(MockProvider(delay=0.0 if s.environment == "test" else 0.015))
     return ProviderChain(providers)

@@ -52,7 +52,12 @@ class MockProvider(LLMProvider):
         m = re.search(r"Do NOT change ([^:]+):", system)
         if m:
             locked = {x.strip().lower() for x in m.group(1).split(",")}
-        return json.dumps(_tailor(jd, resume, locked), ensure_ascii=False)
+        data = _tailor(jd, resume, locked)
+        confirmed = [l[2:].split(":", 1)[0].strip() for l in _between(user, "candidate_confirmed_skills").splitlines() if l.startswith("- ")]
+        if confirmed and "skills" not in locked:
+            data["skills"]["groups"].append({"category": "Also experienced with", "items": confirmed})
+            data["missing_keywords"] = [m for m in data["missing_keywords"] if m["keyword"].lower() not in {c.lower() for c in confirmed}]
+        return json.dumps(data, ensure_ascii=False)
 
 
 def _between(text: str, tag: str) -> str:

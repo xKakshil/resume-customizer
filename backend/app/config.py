@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_model: str = "gpt-4.1-mini"
     openai_base_url: str = "https://api.openai.com/v1"
+    # Local, private inference via Ollama (https://ollama.com) — no API key needed.
+    ollama_model: str = "llama3.1"
+    ollama_base_url: str = "http://localhost:11434/v1"
     llm_timeout_seconds: float = 90.0
     llm_max_retries: int = 2
     llm_temperature: float = 0.4

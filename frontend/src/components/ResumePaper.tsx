@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import { PenLine } from "lucide-react";
 import type { Bullet, TailoredResume, Version } from "@/lib/types";
-import { bulletText, parseFlag, summaryText } from "@/lib/resume";
+import { bulletText, flagNote, parseFlag, summaryText } from "@/lib/resume";
 import { Highlight } from "./highlight";
 import { cx } from "./ui";
 
@@ -48,13 +48,7 @@ function Heading({ children }: { children: React.ReactNode }) {
 
 function Flags({ b }: { b: Bullet }) {
   if (!b.flags?.length) return null;
-  const notes = b.flags.map(parseFlag).map((f) =>
-    f.kind === "number"
-      ? `${f.values.join(", ")} isn't in your original resume`
-      : f.kind === "skill"
-        ? `${f.values.join(", ")} isn't mentioned in your original resume`
-        : "verify this line",
-  );
+  const notes = b.flags.map(parseFlag).map(flagNote);
   return (
     <span className="ml-1 inline-flex items-center gap-1 rounded-sm bg-red-wash px-1 align-[1px] font-sans text-[11.5px] font-medium text-red" title={notes.join("; ")}>
       <PenLine className="size-3" aria-hidden />

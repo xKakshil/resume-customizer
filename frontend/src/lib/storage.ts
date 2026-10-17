@@ -26,4 +26,5 @@ export const KEYS = {
   versions: "tailor.versions",
   options: "tailor.options",
   auth: "tailor.auth",
+  confirmed: "tailor.confirmed",
 } as const;

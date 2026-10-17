@@ -83,7 +83,14 @@ export interface TailorResult {
   resume: TailoredResume;
   tailored_text: string;
   scores: Scores;
-  guardrails: { removed_skills: string[]; flagged_bullets: number; locked_sections: Section[]; removed_details?: string[] };
+  guardrails: {
+    removed_skills: string[];
+    flagged_bullets: number;
+    locked_sections: Section[];
+    removed_details?: string[];
+    copied_from_jd?: number;
+    confirmed_used?: string[];
+  };
   meta: { provider: string; model: string; tone: Tone; sections: Section[]; duration_ms: number; created_at: string };
   cover_letter?: string;
 }
@@ -116,6 +123,12 @@ export interface HistoryItem {
   match_after: number | null;
   tone: Tone | null;
   created_at: string;
+}
+
+/** A skill the user confirmed they have although the resume doesn't show it. */
+export interface ConfirmedSkill {
+  keyword: string;
+  context: string;
 }
 
 /** A generated version kept on the client so users can compare and refine. */

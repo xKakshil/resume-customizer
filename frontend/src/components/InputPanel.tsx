@@ -1,11 +1,11 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { AlertTriangle, FileText, RefreshCw, Trash2, Upload } from "lucide-react";
+import { AlertTriangle, FileText, Link2, RefreshCw, Trash2, Upload, X } from "lucide-react";
 import type { ParsedResume, Section, Tone } from "@/lib/types";
 import { ALL_SECTIONS } from "@/lib/types";
 import { formatBytes } from "@/lib/resume";
-import { Segmented, cx } from "./ui";
+import { Button, Segmented, cx } from "./ui";
 
 export const MIN_JD = 100;
 export const MAX_JD = 20_000;
@@ -22,6 +22,7 @@ export function JDInput({
   onPasted,
   cleanedLines,
   onUndoClean,
+  onImport,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -31,7 +32,10 @@ export function JDInput({
   onPasted?: () => void;
   cleanedLines?: number;
   onUndoClean?: () => void;
+  onImport?: (url: string) => Promise<boolean>;
 }) {
+  const [importing, setImporting] = useState<"closed" | "open" | "busy">("closed");
+  const [url, setUrl] = useState("");
   const len = value.trim().length;
   const error = !len ? "Paste the job description to continue." : len < MIN_JD ? `Add a bit more — at least ${MIN_JD} characters (${len} so far).` : len > MAX_JD ? `Too long — keep it under ${MAX_JD.toLocaleString()} characters.` : null;
   return (
@@ -40,8 +44,45 @@ export function JDInput({
         <label htmlFor="jd" className="font-medium">
           Job description
         </label>
-        <span className={cx("text-xs tabular-nums", len > MAX_JD ? "text-red" : "text-muted")}>{len.toLocaleString()} chars</span>
+        <span className="flex items-baseline gap-3">
+          {onImport && importing === "closed" && (
+            <button type="button" disabled={disabled} onClick={() => setImporting("open")} className="inline-flex items-center gap-1 text-xs font-medium text-blue hover:underline disabled:opacity-50">
+              <Link2 className="size-3.5" aria-hidden /> Import from link
+            </button>
+          )}
+          <span className={cx("text-xs tabular-nums", len > MAX_JD ? "text-red" : "text-muted")}>{len.toLocaleString()} chars</span>
+        </span>
       </div>
+      {importing !== "closed" && (
+        <form
+          className="mb-2 flex gap-2"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            if (!url.trim()) return;
+            setImporting("busy");
+            const ok = await onImport?.(url.trim());
+            setImporting(ok ? "closed" : "open");
+            if (ok) setUrl("");
+          }}
+        >
+          <input
+            autoFocus
+            type="url"
+            inputMode="url"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="https://jobs.company.com/backend-engineer"
+            aria-label="Job posting link"
+            className="h-9 min-w-0 flex-1 rounded-md border border-rule bg-paper px-2.5 text-sm outline-none focus:border-blue"
+          />
+          <Button size="sm" type="submit" loading={importing === "busy"}>
+            Import
+          </Button>
+          <Button size="sm" variant="ghost" type="button" onClick={() => setImporting("closed")} aria-label="Cancel import">
+            <X className="size-4" />
+          </Button>
+        </form>
+      )}
       <textarea
         id="jd"
         value={value}

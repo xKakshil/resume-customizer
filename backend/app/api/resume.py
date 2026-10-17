@@ -15,6 +15,7 @@ from app.core.security import optional_user
 from app.models.db import Run, User, get_db, session
 from app.models.schemas import ScoreRequest, TailorRequest
 from app.services.jd import clean_jd
+from app.services.jd_fetch import fetch_job_description
 from app.services.parsing import parse_resume
 from app.services.tailor import compute_scores, tailor, tailor_stream, validate_inputs
 
@@ -23,6 +24,10 @@ router = APIRouter(prefix="/api", tags=["resume"])
 
 class JDCleanRequest(BaseModel):
     job_description: str = Field(max_length=50_000)
+
+
+class JDFetchRequest(BaseModel):
+    url: str = Field(min_length=4, max_length=2000)
 log = logging.getLogger(__name__)
 
 
@@ -55,6 +60,12 @@ async def score(body: ScoreRequest):
 async def clean_job_description(body: JDCleanRequest):
     text, removed = clean_jd(body.job_description)
     return {"job_description": text, "removed_lines": removed}
+
+
+@router.post("/jd/fetch", summary="Import a job description from a job-posting URL")
+async def fetch_jd(body: JDFetchRequest, request: Request):
+    rate_limit.check(request, "fetch", 20)
+    return await fetch_job_description(body.url)
 
 
 def _save_run(user_id: int, req: TailorRequest, result: dict) -> int:

@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { History, LogOut, PencilLine, Plus, Sparkles, Square, Highlighter, X, RotateCw, AlertTriangle } from "lucide-react";
-import { ApiError, cleanJD, health, history as historyApi, parseResume, scoreResume, setAuthToken, tailorStream, auth } from "@/lib/api";
-import type { ParsedResume, Scores, Section, TailoredResume, Tone, User, Version } from "@/lib/types";
+import { ApiError, cleanJD, fetchJD, health, history as historyApi, parseResume, scoreResume, setAuthToken, tailorStream, auth } from "@/lib/api";
+import type { ConfirmedSkill, ParsedResume, Scores, Section, TailoredResume, Tone, User, Version } from "@/lib/types";
 import { ALL_SECTIONS } from "@/lib/types";
 import { effectiveResume, timeAgo } from "@/lib/resume";
 import { parsePartialResume } from "@/lib/partial";
@@ -54,6 +54,7 @@ export function Workbench() {
   const [sections, setSections] = useState<Section[]>(ALL_SECTIONS);
   const [tone, setTone] = useState<Tone>("balanced");
   const [extra, setExtra] = useState("");
+  const [confirmed, setConfirmed] = useState<ConfirmedSkill[]>([]);
   const [scored, setBaseline] = useState<Scores | null>(null);
 
   const baselineReady = jd.trim().length >= MIN_JD && jd.trim().length <= MAX_JD && !!parsed;
@@ -88,6 +89,7 @@ export function Workbench() {
     if (opts.sections?.length) setSections(opts.sections);
     if (opts.tone) setTone(opts.tone);
     if (opts.extra) setExtra(opts.extra);
+    setConfirmed(load<ConfirmedSkill[]>(KEYS.confirmed, []));
     const vs = load<Version[]>(KEYS.versions, []);
     if (vs.length) {
       setVersions(vs);
@@ -117,6 +119,7 @@ export function Workbench() {
   useEffect(() => void (hydrated && save(KEYS.resume, parsed)), [parsed, hydrated]);
   useEffect(() => void (hydrated && save(KEYS.options, { sections, tone, extra })), [sections, tone, extra, hydrated]);
   useEffect(() => void (hydrated && save(KEYS.versions, versions)), [versions, hydrated]);
+  useEffect(() => void (hydrated && save(KEYS.confirmed, confirmed)), [confirmed, hydrated]);
 
   // Wake the server (free hosting sleeps when idle) ---------------------------
   useEffect(() => {
@@ -192,6 +195,24 @@ export function Workbench() {
     }
   };
 
+  const importJD = async (url: string): Promise<boolean> => {
+    try {
+      const res = await fetchJD(url);
+      setJd(res.job_description);
+      setJdClean(null);
+      setJdTouched(false);
+      toast("success", `Imported ${res.title ? `"${[res.title, res.company].filter(Boolean).join(" — ")}"` : "the job description"}. Check it reads correctly.`);
+      return true;
+    } catch (e) {
+      toast("error", (e as Error).message);
+      return false;
+    }
+  };
+
+  const confirmSkill = (keyword: string, context: string) =>
+    setConfirmed((cs) => [...cs.filter((c) => c.keyword.toLowerCase() !== keyword.toLowerCase()), { keyword, context }].slice(-20));
+  const unconfirmSkill = (keyword: string) => setConfirmed((cs) => cs.filter((c) => c.keyword.toLowerCase() !== keyword.toLowerCase()));
+
   const loadSample = async () => {
     setJd(SAMPLE_JD);
     setJdTouched(false);
@@ -228,7 +249,15 @@ export function Workbench() {
     let lastPaint = 0;
     try {
       const result = await tailorStream(
-        { job_description: jd, resume_text: parsed.text, sections, tone, extra_instructions: extra, resume_filename: parsed.filename },
+        {
+          job_description: jd,
+          resume_text: parsed.text,
+          sections,
+          tone,
+          extra_instructions: extra,
+          resume_filename: parsed.filename,
+          confirmed_skills: confirmed,
+        },
         {
           onStatus: (s) => setRun((r) => ({ ...r, stage: s.stage })),
           onDelta: (d) => {
@@ -412,6 +441,7 @@ export function Workbench() {
                 if (jdClean) setJd(jdClean.previous);
                 setJdClean(null);
               }}
+              onImport={importJD}
             />
             <ResumeUpload
               parsed={parsed}
@@ -427,6 +457,23 @@ export function Workbench() {
               disabled={streaming}
             />
             <Options sections={sections} tone={tone} extra={extra} onSections={setSections} onTone={setTone} onExtra={setExtra} disabled={streaming} />
+
+            {confirmed.length > 0 && (
+              <div>
+                <div className="mb-1.5 font-medium">Skills you confirmed</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {confirmed.map((c) => (
+                    <span key={c.keyword} className="inline-flex items-center gap-1 rounded-full border border-green/40 bg-green-wash py-0.5 pl-2.5 pr-1 text-[13px] text-green" title={c.context || undefined}>
+                      {c.keyword}
+                      <button onClick={() => unconfirmSkill(c.keyword)} disabled={streaming} className="rounded-full p-0.5 hover:bg-green/15" aria-label={`Remove ${c.keyword}`}>
+                        <X className="size-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+                <p className="mt-1 text-xs text-muted">Not in your resume, but you said you have them — the next version can use them.</p>
+              </div>
+            )}
 
             <div className="sticky bottom-0 -mx-1 bg-desk px-1 pb-1 pt-2 lg:static">
               {streaming ? (
@@ -523,7 +570,16 @@ export function Workbench() {
                 </>
               )}
               {tab === "changes" && <ChangesView version={active} resumeText={parsed?.text ?? ""} onToggle={toggleDecision} onRevertAll={revertAll} />}
-              {tab === "insights" && <InsightsView result={active.result} />}
+              {tab === "insights" && (
+                <InsightsView
+                  result={active.result}
+                  confirmed={confirmed}
+                  onConfirm={confirmSkill}
+                  onUnconfirm={unconfirmSkill}
+                  onRegenerate={tailor}
+                  busy={streaming}
+                />
+              )}
               {tab === "cover" && (
                 <CoverLetterView
                   key={active.key}
