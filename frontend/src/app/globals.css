@@ -1,0 +1,207 @@
+@import "tailwindcss";
+@import "@fontsource-variable/bricolage-grotesque/wght.css";
+@import "@fontsource-variable/source-serif-4/opsz.css";
+@import "@fontsource-variable/source-serif-4/opsz-italic.css";
+
+/* ------------------------------------------------------------------------
+   Tokens — "editor's desk": a cool desk surface, white paper, ink text,
+   proof-blue insertions, red-pencil deletions and one bold highlighter.
+   ------------------------------------------------------------------------ */
+:root {
+  --desk: #e8ecf2;
+  --desk-2: #dde3ec;
+  --paper: #ffffff;
+  --ink: #16233b;
+  --ink-2: #3a4760;
+  --muted: #5b6578;
+  --rule: #c9d1de;
+  --rule-soft: #e3e8ef;
+  --blue: #2747d9;
+  --blue-ink: #1d37ad;
+  --blue-wash: #e6ebfd;
+  --red: #c2323c;
+  --red-wash: #fbe9ea;
+  --green: #1f7a4d;
+  --green-wash: #e3f3ea;
+  --amber: #8a5a00;
+  --amber-wash: #fff4d6;
+  --hl: #ffe45c;
+  --hl-soft: rgba(255, 228, 92, 0.55);
+  --shadow-paper: 0 1px 0 rgba(22, 35, 59, 0.06), 0 12px 32px -12px rgba(22, 35, 59, 0.28);
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --desk: #121826;
+    --desk-2: #1a2232;
+    --paper: #1d2536;
+    --ink: #e7ecf5;
+    --ink-2: #c3cbda;
+    --muted: #96a0b4;
+    --rule: #34405a;
+    --rule-soft: #283247;
+    --blue: #8aa2ff;
+    --blue-ink: #a9bbff;
+    --blue-wash: #24305a;
+    --red: #ff8a8f;
+    --red-wash: #3d2229;
+    --green: #6fd3a0;
+    --green-wash: #1b3a2d;
+    --amber: #f2c26b;
+    --amber-wash: #3a3020;
+    --hl: #ffe45c;
+    --hl-soft: rgba(255, 228, 92, 0.28);
+    --shadow-paper: 0 1px 0 rgba(0, 0, 0, 0.3), 0 16px 40px -14px rgba(0, 0, 0, 0.7);
+    color-scheme: dark;
+  }
+}
+
+@theme inline {
+  --color-desk: var(--desk);
+  --color-desk-2: var(--desk-2);
+  --color-paper: var(--paper);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-muted: var(--muted);
+  --color-rule: var(--rule);
+  --color-rule-soft: var(--rule-soft);
+  --color-blue: var(--blue);
+  --color-blue-ink: var(--blue-ink);
+  --color-blue-wash: var(--blue-wash);
+  --color-red: var(--red);
+  --color-red-wash: var(--red-wash);
+  --color-green: var(--green);
+  --color-green-wash: var(--green-wash);
+  --color-amber: var(--amber);
+  --color-amber-wash: var(--amber-wash);
+  --color-hl: var(--hl);
+  --font-sans: "Bricolage Grotesque Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Source Serif 4 Variable", Georgia, "Times New Roman", serif;
+}
+
+html,
+body {
+  background: var(--desk);
+  color: var(--ink);
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: var(--hl);
+  color: #16233b;
+}
+
+:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* The sheet of paper — the one surface with depth. */
+.paper {
+  background: var(--paper);
+  box-shadow: var(--shadow-paper);
+  border-radius: 3px;
+}
+
+.paper-text {
+  font-family: var(--font-serif);
+  font-optical-sizing: auto;
+  font-size: 14.5px;
+  line-height: 1.6;
+}
+
+/* Highlighter: slightly ragged like a real marker stroke. */
+mark.hl {
+  color: inherit;
+  background: linear-gradient(104deg, transparent 0.4em, var(--hl-soft) 0.5em, var(--hl-soft) 94%, transparent 100%);
+  padding: 0 0.12em;
+  margin: 0 -0.06em;
+  border-radius: 0.3em 0.1em 0.35em 0.15em;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+/* Proofreading marks for the diff. */
+ins.mark-ins {
+  text-decoration: none;
+  color: var(--blue-ink);
+  background: var(--blue-wash);
+  border-bottom: 1.5px solid var(--blue);
+  border-radius: 2px;
+  padding: 0 1px;
+}
+del.mark-del {
+  color: var(--red);
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+  text-decoration-color: var(--red);
+  opacity: 0.85;
+}
+
+/* Streaming caret */
+.caret::after {
+  content: "";
+  display: inline-block;
+  width: 0.55em;
+  height: 1.05em;
+  margin-left: 2px;
+  vertical-align: -0.15em;
+  background: var(--blue);
+  animation: blink 1s steps(2, start) infinite;
+}
+@keyframes blink {
+  to {
+    visibility: hidden;
+  }
+}
+
+/* Writing-in effect for freshly streamed blocks: a single, purposeful motion. */
+.ink-in {
+  animation: ink-in 420ms ease-out both;
+}
+@keyframes ink-in {
+  from {
+    opacity: 0;
+    filter: blur(2px);
+  }
+  to {
+    opacity: 1;
+    filter: none;
+  }
+}
+
+.scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--rule) transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+@media print {
+  body {
+    background: white;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .paper {
+    box-shadow: none;
+  }
+}
