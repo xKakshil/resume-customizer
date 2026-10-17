@@ -215,7 +215,7 @@ def keyword_present(name: str, text: str) -> bool:
 
 def match_score(jd_keywords: list[WeightedKeyword], resume_text: str) -> dict:
     if not jd_keywords:
-        return {"score": None, "matched": [], "missing": [], "total": 0,
+        return {"score": None, "matched": [], "missing": [], "total": 0, "required_total": 0, "required_matched": 0,
                 "note": "No recognisable skills or technologies were found in the job description."}
     matched, missing = [], []
     got = total = 0.0
@@ -226,7 +226,9 @@ def match_score(jd_keywords: list[WeightedKeyword], resume_text: str) -> dict:
             matched.append(kw.to_dict())
         else:
             missing.append(kw.to_dict())
-    return {"score": round(100 * got / total) if total else 0, "matched": matched, "missing": missing, "total": len(jd_keywords)}
+    required = [k for k in jd_keywords if k.required]
+    return {"score": round(100 * got / total) if total else 0, "matched": matched, "missing": missing, "total": len(jd_keywords),
+            "required_total": len(required), "required_matched": sum(1 for m in matched if m["required"])}
 
 
 def resume_skills(text: str) -> set[str]:

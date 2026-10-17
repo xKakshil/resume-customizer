@@ -4,6 +4,7 @@ import logging
 
 from fastapi import APIRouter, Depends, File, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.api.sse import sse_response
@@ -13,10 +14,15 @@ from app.core.errors import FileTooLargeError
 from app.core.security import optional_user
 from app.models.db import Run, User, get_db, session
 from app.models.schemas import ScoreRequest, TailorRequest
+from app.services.jd import clean_jd
 from app.services.parsing import parse_resume
 from app.services.tailor import compute_scores, tailor, tailor_stream, validate_inputs
 
 router = APIRouter(prefix="/api", tags=["resume"])
+
+
+class JDCleanRequest(BaseModel):
+    job_description: str = Field(max_length=50_000)
 log = logging.getLogger(__name__)
 
 
@@ -43,6 +49,12 @@ async def parse(request: Request, file: UploadFile = File(...)):
 async def score(body: ScoreRequest):
     jd, resume = validate_inputs(body.job_description, body.resume_text)
     return compute_scores(jd, resume)
+
+
+@router.post("/jd/clean", summary="Strip job-board boilerplate from a pasted JD")
+async def clean_job_description(body: JDCleanRequest):
+    text, removed = clean_jd(body.job_description)
+    return {"job_description": text, "removed_lines": removed}
 
 
 def _save_run(user_id: int, req: TailorRequest, result: dict) -> int:

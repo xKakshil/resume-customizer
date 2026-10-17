@@ -11,6 +11,7 @@ from fastapi.responses import Response
 from app.core.errors import InvalidInputError
 from app.models.schemas import ExportRequest
 from app.services import export as ex
+from app.services.latex import resume_tex
 from app.services.render import to_markdown, to_text
 
 router = APIRouter(prefix="/api", tags=["export"])
@@ -20,6 +21,7 @@ MIME = {
     "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "txt": "text/plain; charset=utf-8",
     "md": "text/markdown; charset=utf-8",
+    "tex": "application/x-tex; charset=utf-8",
 }
 
 
@@ -40,6 +42,8 @@ async def export(body: ExportRequest):
             data = await run_in_threadpool(ex.letter_pdf, text, body.candidate_name)
         elif body.format == "docx":
             data = await run_in_threadpool(ex.letter_docx, text, body.candidate_name)
+        elif body.format == "tex":
+            raise InvalidInputError("LaTeX export is available for resumes only.", code="export_unsupported")
         else:
             data = text.encode("utf-8")
     else:
@@ -51,6 +55,8 @@ async def export(body: ExportRequest):
             data = await run_in_threadpool(ex.resume_docx, r)
         elif body.format == "md":
             data = to_markdown(r).encode("utf-8")
+        elif body.format == "tex":
+            data = resume_tex(r).encode("utf-8")
         else:
             data = to_text(r).encode("utf-8")
 

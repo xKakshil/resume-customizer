@@ -1,0 +1,18 @@
+Frontend Engineer (React / Next.js)
+
+Join our product team building a design-heavy SaaS dashboard used by 20,000 small businesses.
+
+Responsibilities
+- Build accessible, responsive interfaces with React, Next.js and TypeScript
+- Own performance: Core Web Vitals, code splitting, server-side rendering
+- Collaborate closely with designers in Figma and translate designs into reusable components
+- Write tests with Jest and Playwright; maintain our Storybook design system
+
+Must have
+- 1+ years building production React applications
+- Strong JavaScript/TypeScript and CSS (Tailwind CSS a plus)
+- Understanding of web accessibility (WCAG) and performance optimization
+
+Nice to have
+- GraphQL, Redux or React Query
+- Experience shipping a design system

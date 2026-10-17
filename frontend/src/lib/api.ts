@@ -207,7 +207,42 @@ export function coverLetterStream(params: CoverLetterParams, onDelta: (t: string
 }
 
 // ---------------------------------------------------------------------------
-export type ExportFormat = "pdf" | "docx" | "txt" | "md";
+export type ExportFormat = "pdf" | "docx" | "txt" | "md" | "tex";
+
+export const cleanJD = (job_description: string) =>
+  request<{ job_description: string; removed_lines: number }>("/api/jd/clean", {
+    method: "POST",
+    headers: headers(),
+    body: JSON.stringify({ job_description }),
+  });
+
+/** Fetch the LaTeX source and open it as a new Overleaf project.
+ *  The tab is opened synchronously (inside the click) so popup blockers allow it. */
+export async function openInOverleaf(resume: TailoredResume): Promise<void> {
+  const win = window.open("", "overleaf");
+  try {
+    const res = await fetch(`${API_URL}/api/export`, { method: "POST", headers: headers(), body: JSON.stringify({ format: "tex", resume }) });
+    if (!res.ok) throw await toApiError(res);
+    const tex = await res.text();
+    const form = document.createElement("form");
+    form.method = "POST";
+    form.action = "https://www.overleaf.com/docs";
+    form.target = "overleaf";
+    for (const [name, value] of [["encoded_snip", encodeURIComponent(tex)], ["snip_name", "resume.tex"], ["engine", "pdflatex"]]) {
+      const input = document.createElement("input");
+      input.type = "hidden";
+      input.name = name;
+      input.value = value;
+      form.appendChild(input);
+    }
+    document.body.appendChild(form);
+    form.submit();
+    form.remove();
+  } catch (e) {
+    win?.close();
+    throw e instanceof ApiError ? e : networkError(e);
+  }
+}
 
 export async function downloadExport(
   body: { format: ExportFormat; resume?: TailoredResume; cover_letter?: string; candidate_name?: string; filename?: string },

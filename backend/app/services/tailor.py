@@ -23,6 +23,7 @@ from app.config import get_settings
 from app.core.errors import InvalidInputError, LLMError
 from app.models.schemas import Bullet, MissingKeyword, TailoredResume, TailorRequest
 from app.services import keywords as kw
+from app.services.jd import clean_jd
 from app.services.llm.factory import get_chain
 from app.services.prompts import build_tailor_messages
 from app.services.render import to_text
@@ -43,6 +44,7 @@ def validate_inputs(jd: str, resume: str) -> tuple[str, str]:
         raise InvalidInputError(f"The job description is too short ({len(jd)} characters). Paste the full posting — at least {s.min_jd_chars} characters.", code="jd_too_short")
     if len(jd) > s.max_jd_chars:
         raise InvalidInputError(f"The job description is too long ({len(jd):,} characters). Please keep it under {s.max_jd_chars:,}.", code="jd_too_long")
+    jd, _ = clean_jd(jd)
     if len(set(jd.lower().split())) < 15:
         raise InvalidInputError("This doesn't look like a job description. Please paste the full posting text.", code="not_a_jd")
     if not resume:
@@ -119,7 +121,7 @@ def _restore_order(bullets: list[Bullet], resume: str) -> list[Bullet]:
 
 
 def apply_guardrails(r: TailoredResume, req: TailorRequest, resume: str, jd_keywords: list[kw.WeightedKeyword]) -> dict:
-    report = {"removed_skills": [], "flagged_bullets": 0, "locked_sections": [s for s in ("summary", "skills", "experience", "projects") if s not in req.sections]}
+    report = {"removed_skills": [], "flagged_bullets": 0, "removed_details": [], "locked_sections": [s for s in ("summary", "skills", "experience", "projects") if s not in req.sections]}
     resume_lex = kw.resume_skills(resume)
     resume_nums = set(_NUM_RE.findall(resume))
 
@@ -135,7 +137,22 @@ def apply_guardrails(r: TailoredResume, req: TailorRequest, resume: str, jd_keyw
                 item.bullets = _restore_order(item.bullets, resume)
                 item.rationale = ""
 
-    # 2. Skills must be evidenced by the resume.
+    # 2. Dates and locations must come from the resume (models like to "complete" them).
+    low_resume = resume.lower()
+    resume_years = set(re.findall(r"\b(?:19|20)\d{2}\b", resume))
+    for kind, items in (("experience", r.experience), ("projects", r.projects), ("education", r.education)):
+        for item in items:
+            label = getattr(item, "title", "") or getattr(item, "name", "") or getattr(item, "degree", "")
+            years = set(re.findall(r"\b(?:19|20)\d{2}\b", item.dates or ""))
+            if years - resume_years:
+                report["removed_details"].append(f"dates '{item.dates}' on {label or kind}")
+                item.dates = ""
+            loc = getattr(item, "location", "")
+            if loc and _norm(loc) not in _norm(resume) and not all(t in low_resume for t in _norm(loc).split() if len(t) > 2):
+                report["removed_details"].append(f"location '{loc}' on {label or kind}")
+                item.location = ""
+
+    # 3. Skills must be evidenced by the resume.
     missing_names = {m.keyword.lower() for m in r.missing_keywords}
     for g in r.skills.groups:
         kept = []
@@ -152,7 +169,7 @@ def apply_guardrails(r: TailoredResume, req: TailorRequest, resume: str, jd_keyw
     r.skills.groups = [g for g in r.skills.groups if g.items]
     r.skills.matched = [m for m in r.skills.matched if _evidenced(m, resume, resume_lex)]
 
-    # 3. Flag bullets that introduce unverified numbers / technologies.
+    # 4. Flag bullets that introduce unverified numbers / technologies.
     for item in [*r.experience, *r.projects]:
         for b in item.bullets:
             if not b.tailored or b.tailored == b.original:
@@ -168,7 +185,7 @@ def apply_guardrails(r: TailoredResume, req: TailorRequest, resume: str, jd_keyw
                 b.flags = flags
                 report["flagged_bullets"] += 1
 
-    # 4. Clean missing keywords: drop ones the resume has, dedupe, sort by importance.
+    # 5. Clean missing keywords: drop ones the resume has, dedupe, sort by importance.
     seen, cleaned = set(), []
     for m in r.missing_keywords:
         k = m.keyword.strip()
@@ -195,6 +212,19 @@ def compute_scores(jd: str, resume_text: str, tailored_text: str | None = None, 
     return result
 
 
+def skill_evidence(r: TailoredResume, match_after: dict) -> dict:
+    """Split matched JD keywords into ones demonstrated in a bullet vs only listed.
+
+    Recruiters (and newer ATS ranking) trust a skill far more when a bullet shows
+    it being used than when it only appears in the Skills list."""
+    bullets = "\n".join(b.tailored or b.original for item in [*r.experience, *r.projects] for b in item.bullets)
+    bullets += "\n" + "\n".join(", ".join(p.tech) for p in r.projects)
+    shown, listed_only = [], []
+    for m in match_after.get("matched", []):
+        (shown if kw.keyword_present(m["keyword"], bullets) else listed_only).append(m["keyword"])
+    return {"shown": shown, "listed_only": listed_only}
+
+
 def build_result(r: TailoredResume, req: TailorRequest, jd: str, resume: str, provider: str, model: str, started: float) -> dict:
     if not r.jd_analysis.is_job_description:
         raise InvalidInputError("The text you pasted doesn't look like a job description. Please paste the job posting.", code="not_a_jd")
@@ -203,10 +233,12 @@ def build_result(r: TailoredResume, req: TailorRequest, jd: str, resume: str, pr
     jd_keywords = kw.extract_jd_keywords(jd)
     guard = apply_guardrails(r, req, resume, jd_keywords)
     tailored_text = to_text(r)
+    scores = compute_scores(jd, resume, tailored_text, jd_keywords)
+    scores["evidence"] = skill_evidence(r, scores["match"]["after"])
     return {
         "resume": r.model_dump(),
         "tailored_text": tailored_text,
-        "scores": compute_scores(jd, resume, tailored_text, jd_keywords),
+        "scores": scores,
         "guardrails": guard,
         "meta": {"provider": provider, "model": model, "tone": req.tone, "sections": req.sections,
                  "duration_ms": int((time.perf_counter() - started) * 1000),

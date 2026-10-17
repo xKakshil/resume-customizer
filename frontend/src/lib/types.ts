@@ -50,6 +50,8 @@ export interface MatchResult {
   matched: KeywordHit[];
   missing: KeywordHit[];
   total: number;
+  required_total: number;
+  required_matched: number;
   note?: string;
 }
 
@@ -72,6 +74,8 @@ export interface AtsResult {
 export interface Scores {
   match: { before: MatchResult; after?: MatchResult };
   ats: { before: AtsResult; after?: AtsResult };
+  /** Matched JD keywords demonstrated in a bullet vs only listed in Skills. */
+  evidence?: { shown: string[]; listed_only: string[] };
 }
 
 export interface TailorResult {
@@ -79,7 +83,7 @@ export interface TailorResult {
   resume: TailoredResume;
   tailored_text: string;
   scores: Scores;
-  guardrails: { removed_skills: string[]; flagged_bullets: number; locked_sections: Section[] };
+  guardrails: { removed_skills: string[]; flagged_bullets: number; locked_sections: Section[]; removed_details?: string[] };
   meta: { provider: string; model: string; tone: Tone; sections: Section[]; duration_ms: number; created_at: string };
   cover_letter?: string;
 }

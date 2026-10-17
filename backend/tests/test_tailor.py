@@ -97,3 +97,43 @@ def test_validate_inputs_resume():
 def test_request_requires_a_section():
     with pytest.raises(ValueError):
         TailorRequest(job_description=SAMPLE_JD, resume_text=resume_text(), sections=[])
+
+
+def test_guardrail_removes_invented_dates_and_locations():
+    r = make()
+    r.experience[0].dates = "Jan 2019 – Dec 2021"  # resume says 2025
+    r.experience[0].location = "San Francisco"
+    report = apply_guardrails(r, req(), resume_text(), [])
+    assert r.experience[0].dates == "" and r.experience[0].location == ""
+    assert len(report["removed_details"]) == 2
+
+
+def test_guardrail_keeps_real_dates_and_locations():
+    r = make()
+    r.experience[0].dates = "Jan 2025 – Jun 2025"
+    r.experience[0].location = "Bengaluru"
+    report = apply_guardrails(r, req(), resume_text(), [])
+    assert r.experience[0].dates == "Jan 2025 – Jun 2025" and r.experience[0].location == "Bengaluru"
+    assert report["removed_details"] == []
+
+
+def test_skill_evidence_split():
+    from app.services.tailor import skill_evidence
+
+    r = make()
+    match = {"matched": [{"keyword": "React"}, {"keyword": "Python"}]}
+    ev = skill_evidence(r, match)
+    assert ev == {"shown": ["React"], "listed_only": ["Python"]}
+
+
+def test_clean_jd_removes_board_boilerplate_only():
+    from app.services.jd import clean_jd
+
+    raw = ("Backend Engineer\nBackend Engineer\nPosted 3 days ago\n120 applicants\nApply now\n\n"
+           "Build REST APIs in Python.\nWe are an equal opportunity employer and value diversity.\n"
+           "Job ID: 12345\nShow more\nYou will own services end to end.")
+    out, removed = clean_jd(raw)
+    assert removed == 7
+    assert out.splitlines()[0] == "Backend Engineer"
+    assert "Build REST APIs in Python." in out and "own services" in out
+    assert "Apply now" not in out and "equal opportunity" not in out

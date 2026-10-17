@@ -176,7 +176,7 @@ class ScoreRequest(BaseModel):
 
 
 class ExportRequest(BaseModel):
-    format: Literal["pdf", "docx", "txt", "md"]
+    format: Literal["pdf", "docx", "txt", "md", "tex"]
     resume: TailoredResume | None = None
     cover_letter: str | None = None
     candidate_name: str = ""

@@ -1,0 +1,16 @@
+Machine Learning Engineer Intern — GenAI
+
+Work with our applied AI team on LLM-powered features for customer support.
+
+What you'll work on
+- Build retrieval-augmented generation (RAG) pipelines with LangChain or LlamaIndex
+- Evaluate and fine-tune open models from Hugging Face using PyTorch
+- Work with vector databases (pgvector, Pinecone) and embeddings
+- Deploy models behind FastAPI services with Docker
+
+Requirements
+- Python, PyTorch and the basics of NLP and deep learning
+- Understanding of LLMs, prompt engineering and evaluation
+
+Nice to have
+- MLOps experience, Kubernetes, AWS SageMaker

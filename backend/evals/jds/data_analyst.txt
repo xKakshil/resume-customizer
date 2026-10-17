@@ -1,0 +1,17 @@
+Data Analyst — Growth
+
+You'll turn product and marketing data into decisions for a consumer fintech app.
+
+Responsibilities
+- Build dashboards in Power BI or Tableau for weekly growth reviews
+- Write complex SQL against BigQuery; clean and model data with Python (Pandas)
+- Design and analyse A/B tests; present findings to stakeholders
+- Define KPIs with product managers and track funnel metrics
+
+Requirements
+- Strong SQL and Excel; statistics fundamentals
+- Experience with Python for data analysis
+- Clear communication and stakeholder management
+
+Nice to have
+- dbt, Airflow, experience in fintech

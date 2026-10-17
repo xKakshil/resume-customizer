@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { History, LogOut, PencilLine, Plus, Sparkles, Square, Highlighter, X, RotateCw, AlertTriangle } from "lucide-react";
-import { ApiError, health, history as historyApi, parseResume, scoreResume, setAuthToken, tailorStream, auth } from "@/lib/api";
+import { ApiError, cleanJD, health, history as historyApi, parseResume, scoreResume, setAuthToken, tailorStream, auth } from "@/lib/api";
 import type { ParsedResume, Scores, Section, TailoredResume, Tone, User, Version } from "@/lib/types";
 import { ALL_SECTIONS } from "@/lib/types";
 import { effectiveResume, timeAgo } from "@/lib/resume";
@@ -44,6 +44,11 @@ export function Workbench() {
   // --- inputs ---------------------------------------------------------------
   const [jd, setJd] = useState("");
   const [jdTouched, setJdTouched] = useState(false);
+  const [jdClean, setJdClean] = useState<{ removed: number; previous: string } | null>(null);
+  const jdRef = useRef("");
+  useEffect(() => {
+    jdRef.current = jd;
+  }, [jd]);
   const [parsed, setParsed] = useState<ParsedResume | null>(null);
   const [upload, setUpload] = useState<{ busy: boolean; progress: number; error: string | null; file: { name: string; size: number } | null }>({ busy: false, progress: 0, error: null, file: null });
   const [sections, setSections] = useState<Section[]>(ALL_SECTIONS);
@@ -171,6 +176,21 @@ export function Workbench() {
       setUpload({ busy: false, progress: 0, error: (e as ApiError).message, file: null });
     }
   }, []);
+
+  // Strip "Apply now", EEO statements, "Posted 3 days ago"… right after a paste, with undo.
+  const onJdPasted = async () => {
+    // Read straight from the textarea: state may not have flushed yet right after the paste.
+    const before = (document.getElementById("jd") as HTMLTextAreaElement | null)?.value ?? jdRef.current;
+    try {
+      const res = await cleanJD(before);
+      if (res.removed_lines > 0 && jdRef.current === before) {
+        setJd(res.job_description);
+        setJdClean({ removed: res.removed_lines, previous: before });
+      }
+    } catch {
+      /* cleaning is a nicety; the server also cleans before tailoring */
+    }
+  };
 
   const loadSample = async () => {
     setJd(SAMPLE_JD);
@@ -377,7 +397,22 @@ export function Workbench() {
           )}
 
           <div className="mt-6 space-y-5">
-            <JDInput value={jd} onChange={setJd} disabled={streaming} onSubmit={tailor} touched={jdTouched} />
+            <JDInput
+              value={jd}
+              onChange={(v) => {
+                setJd(v);
+                setJdClean(null);
+              }}
+              disabled={streaming}
+              onSubmit={tailor}
+              touched={jdTouched}
+              onPasted={onJdPasted}
+              cleanedLines={jdClean?.removed}
+              onUndoClean={() => {
+                if (jdClean) setJd(jdClean.previous);
+                setJdClean(null);
+              }}
+            />
             <ResumeUpload
               parsed={parsed}
               uploading={upload.busy}

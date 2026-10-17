@@ -1,0 +1,18 @@
+Software Development Engineer I — Backend (Payments Platform)
+
+We are looking for an SDE-1 to join the team that runs our payouts platform, processing millions of transactions a day.
+
+What you'll do
+- Build and own RESTful APIs and microservices in Python (FastAPI/Django) or Node.js
+- Design PostgreSQL schemas and write efficient queries; use Redis for caching and rate limiting
+- Ship with CI/CD (GitHub Actions), Docker and Kubernetes on AWS
+- Write unit and integration tests and take part in code reviews and on-call
+
+Requirements (must have)
+- Strong fundamentals in data structures, algorithms and system design
+- Proficiency in Python or TypeScript
+- Experience with relational databases (PostgreSQL or MySQL) and REST API design
+
+Nice to have
+- Kafka or RabbitMQ, observability with Prometheus/Grafana
+- Prior fintech or payments experience

@@ -19,12 +19,18 @@ export function JDInput({
   disabled,
   onSubmit,
   touched,
+  onPasted,
+  cleanedLines,
+  onUndoClean,
 }: {
   value: string;
   onChange: (v: string) => void;
   disabled?: boolean;
   onSubmit?: () => void;
   touched: boolean;
+  onPasted?: () => void;
+  cleanedLines?: number;
+  onUndoClean?: () => void;
 }) {
   const len = value.trim().length;
   const error = !len ? "Paste the job description to continue." : len < MIN_JD ? `Add a bit more — at least ${MIN_JD} characters (${len} so far).` : len > MAX_JD ? `Too long — keep it under ${MAX_JD.toLocaleString()} characters.` : null;
@@ -41,6 +47,7 @@ export function JDInput({
         value={value}
         disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
+        onPaste={() => setTimeout(() => onPasted?.(), 0)}
         onKeyDown={(e) => {
           if ((e.metaKey || e.ctrlKey) && e.key === "Enter") onSubmit?.();
         }}
@@ -53,7 +60,18 @@ export function JDInput({
         )}
       />
       <p id="jd-help" className={cx("mt-1 text-xs", touched && error ? "text-red" : "text-muted")}>
-        {touched && error ? error : "Tip: ⌘/Ctrl + Enter tailors your resume."}
+        {touched && error ? (
+          error
+        ) : cleanedLines ? (
+          <>
+            Removed {cleanedLines} line{cleanedLines > 1 ? "s" : ""} of job-board boilerplate.{" "}
+            <button type="button" onClick={onUndoClean} className="font-medium text-blue hover:underline">
+              Undo
+            </button>
+          </>
+        ) : (
+          "Tip: ⌘/Ctrl + Enter tailors your resume."
+        )}
       </p>
     </div>
   );

@@ -126,7 +126,10 @@ export function InsightsView({ result }: { result: TailorResult }) {
             label="Keyword match"
             before={scores.match.before.score}
             after={scores.match.after?.score}
-            caption={scores.match.after?.note ?? `Share of the JD's weighted skills found in the resume (${scores.match.before.total} tracked).`}
+            caption={
+              scores.match.after?.note ??
+              `${(scores.match.after ?? scores.match.before).required_matched ?? 0} of ${scores.match.before.required_total ?? 0} must-haves covered · ${scores.match.before.total} JD keywords tracked, weighted by importance.`
+            }
           />
           <ScoreRuler label="ATS readiness" before={scores.ats.before.score} after={scores.ats.after?.score} caption={`${(scores.ats.after ?? scores.ats.before).grade}: structure, contact details, bullets and keywords.`} />
         </div>
@@ -151,6 +154,31 @@ export function InsightsView({ result }: { result: TailorResult }) {
       >
         <KeywordChips match={match} />
       </Panel>
+
+      {scores.evidence && (scores.evidence.listed_only.length > 0 || scores.evidence.shown.length > 0) && (
+        <Panel title="Shown, not just listed">
+          <p className="mb-3 text-[13.5px] text-ink-2">
+            Recruiters trust a skill when a bullet shows you using it. These job keywords appear in your resume — the dashed ones only in the Skills list.
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {scores.evidence.shown.map((k) => (
+              <span key={k} className="rounded-sm px-1.5 py-0.5 text-[13px]" style={{ background: "var(--hl-soft)" }}>
+                {k}
+              </span>
+            ))}
+            {scores.evidence.listed_only.map((k) => (
+              <span key={k} className="rounded-sm border border-dashed border-amber/60 px-1.5 py-0.5 text-[13px] text-amber" title="Only in the Skills list">
+                {k}
+              </span>
+            ))}
+          </div>
+          {scores.evidence.listed_only.length > 0 && (
+            <p className="mt-3 text-[13px] text-muted">
+              If you&apos;ve used {scores.evidence.listed_only.slice(0, 3).join(", ")} in a project or role, mention it in that bullet.
+            </p>
+          )}
+        </Panel>
+      )}
 
       {r.missing_keywords.length > 0 && (
         <Panel title="Worth adding — if it's true">
@@ -196,6 +224,7 @@ export function InsightsView({ result }: { result: TailorResult }) {
                 ? `${g.flagged_bullets} line${g.flagged_bullets > 1 ? "s" : ""} mention a number or tool that isn't in your original — they're marked "Check" on the resume. Keep them only if accurate.`
                 : "No new numbers or tools were introduced."}
             </p>
+            {(g.removed_details?.length ?? 0) > 0 && <p>Removed details the AI added that aren&apos;t in your resume: {g.removed_details!.join("; ")}.</p>}
             {g.locked_sections.length > 0 && <p>Left untouched as requested: {g.locked_sections.join(", ")}.</p>}
           </div>
         </div>
@@ -247,7 +276,11 @@ export function BaselineInsights({ match, ats }: { match: MatchResult; ats: AtsR
     <div className="mx-auto w-full max-w-[800px] space-y-4">
       <Panel title="Your resume, before tailoring">
         <div className="grid gap-6 sm:grid-cols-2">
-          <ScoreRuler label="Keyword match" before={match.score} caption={match.note ?? `${match.matched.length} of ${match.total} JD keywords found.`} />
+          <ScoreRuler
+            label="Keyword match"
+            before={match.score}
+            caption={match.note ?? `${match.matched.length} of ${match.total} JD keywords found · ${match.required_matched ?? 0} of ${match.required_total ?? 0} must-haves.`}
+          />
           <ScoreRuler label="ATS readiness" before={ats.score} caption={`${ats.grade}. Tailor to see how far this moves.`} />
         </div>
       </Panel>

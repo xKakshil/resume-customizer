@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, Copy, Download, FileDown, FileText, Printer } from "lucide-react";
-import { downloadExport, type ExportFormat } from "@/lib/api";
+import { ChevronDown, Copy, Download, ExternalLink, FileDown, FileText, Printer } from "lucide-react";
+import { downloadExport, openInOverleaf, type ExportFormat } from "@/lib/api";
 import type { TailoredResume } from "@/lib/types";
 import { resumeToText } from "@/lib/resume";
 import { Button, Spinner, copyText, useToast } from "./ui";
@@ -41,6 +41,7 @@ export function DownloadMenu({ getResume }: { getResume: () => TailoredResume })
   const items: { format: ExportFormat; label: string; hint: string }[] = [
     { format: "pdf", label: "PDF", hint: "Best for applying" },
     { format: "docx", label: "Word (.docx)", hint: "Edit further in Word or Google Docs" },
+    { format: "tex", label: "LaTeX (.tex)", hint: "Keep editing the source yourself" },
     { format: "md", label: "Markdown", hint: "For GitHub or Notion" },
     { format: "txt", label: "Plain text", hint: "For pasting into job portals" },
   ];
@@ -66,6 +67,24 @@ export function DownloadMenu({ getResume }: { getResume: () => TailoredResume })
               </span>
             </button>
           ))}
+          <button
+            role="menuitem"
+            onClick={async () => {
+              setOpen(false);
+              try {
+                await openInOverleaf(getResume());
+              } catch (e) {
+                toast("error", (e as Error).message);
+              }
+            }}
+            className="flex w-full items-start gap-2.5 px-3 py-2 text-left hover:bg-desk"
+          >
+            <ExternalLink className="mt-0.5 size-4 text-muted" />
+            <span>
+              <span className="block text-sm font-medium">Open in Overleaf</span>
+              <span className="block text-xs text-muted">Edit and compile the LaTeX online</span>
+            </span>
+          </button>
           <div className="my-1 border-t border-rule-soft" />
           <button
             role="menuitem"

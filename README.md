@@ -18,6 +18,8 @@ Paste a job description, upload your resume (PDF or DOCX), and get an **honest, 
 - [Run locally](#run-locally)
 - [Deploy](#deploy)
 - [API reference](#api-reference)
+- [Evaluating the prompt](#evaluating-the-prompt)
+- [Ideas adopted from similar projects](#ideas-adopted-from-similar-projects)
 - [Edge cases handled](#edge-cases-handled)
 - [Testing](#testing)
 - [Limitations & trade-offs](#limitations--trade-offs)
@@ -35,14 +37,14 @@ Paste a job description, upload your resume (PDF or DOCX), and get an **honest, 
 | Resume upload (PDF + DOCX) | Drag-and-drop or picker, upload progress bar, shows **file name, size, type, pages and word count**, plus parse warnings. Text is extracted on the backend with `pdfplumber` / `python-docx`. |
 | LLM customization | Rewrites the summary, groups and orders skills by JD relevance, reorders and rephrases every experience/project bullet with JD keywords, and lists missing keywords with honest suggestions. |
 | Output display | The tailored resume is rendered as a clean "sheet of paper", with JD keywords highlighted. |
-| Download | **PDF**, **Word (.docx)**, **Markdown**, **plain text**, copy to clipboard, and print. Exports are ATS-friendly (single column, real text, real bullet characters). |
+| Download | **PDF**, **Word (.docx)**, **LaTeX (.tex)** with one-click **Open in Overleaf**, **Markdown**, **plain text**, copy to clipboard, and print. Exports are ATS-friendly (single column, real text, real bullet characters, no f-ligatures in LaTeX). |
 | Error handling | Invalid/oversized/corrupt/encrypted/scanned files, empty inputs, LLM rate limits, timeouts, bad JSON, provider outages — every failure has a clear, actionable message. |
 
 ### Bonus (all eight implemented)
 
 | Bonus | Implementation |
 |---|---|
-| ✅ **Match score** | Deterministic weighted keyword match (0–100) shown **before and after** tailoring, with the exact matched/missing keywords. |
+| ✅ **Match score** | Deterministic weighted keyword match (0–100) shown **before and after** tailoring, with the exact matched/missing keywords, **must-have coverage** ("7 of 9 must-haves"), and which skills are **shown in a bullet vs only listed** in Skills. |
 | ✅ **Diff view** | "Changes" tab: word-level marked-up diff (or side-by-side) for the summary and every bullet, "moved up" indicators, per-section rationale — and **accept / revert each line**. Downloads respect your choices. |
 | ✅ **Multiple versions** | Generate up to 6 versions with different emphasis (Balanced, Technical, Impact, Leadership, Concise) and **compare any two** as a diff or side by side. Versions persist across page reloads. |
 | ✅ **Section-wise customization** | Choose which of Summary / Skills / Experience / Projects to rewrite. Unselected sections are restored **verbatim and in original order** by the server, even if the model ignores the instruction. |
@@ -53,7 +55,9 @@ Paste a job description, upload your resume (PDF or DOCX), and get an **honest, 
 
 ### Beyond the brief
 
-- **Truthfulness guardrails** — after the model responds, the server strips any skill the resume doesn't evidence (moving it to "missing keywords"), and flags any rewritten bullet that introduces a number or technology not in the original ("Check: 90% isn't in your original resume"). The model *cannot* silently inflate a resume.
+- **Truthfulness guardrails** — after the model responds, the server strips any skill the resume doesn't evidence (moving it to "missing keywords"), removes dates or locations that aren't in the original, and flags any rewritten bullet that introduces a number or technology not in the original ("Check: 90% isn't in your original resume"). The model *cannot* silently inflate a resume.
+- **Job-board clean-up** — pasting a JD strips "Apply now", "Posted 3 days ago", EEO statements and duplicated lines (with Undo), so they don't waste tokens or add fake keywords.
+- **Prompt evaluation harness** — `python -m evals.run_eval` runs the real model over four job descriptions and reports validity, score deltas, guardrail hits, style and keyword-stuffing metrics, with an optional LLM-as-judge grade. See [Evaluating the prompt](#evaluating-the-prompt).
 - **Fit check before tailoring** — as soon as a JD and resume are present you see the baseline match and ATS scores (no LLM call needed).
 - **Inline editing** — edit any line of the tailored resume directly; edits flow into every download.
 - **Provider failover** — Gemini → Groq (→ OpenAI) chain with retries, exponential backoff and `Retry-After` support.
@@ -145,8 +149,11 @@ flowchart TB
 │   │       ├── scoring.py         # ATS checklist
 │   │       ├── render.py          # resume → text / markdown
 │   │       ├── export.py          # PDF (reportlab) and DOCX (python-docx)
+│   │       ├── latex.py           # LaTeX export (Overleaf-ready)
+│   │       ├── jd.py              # job-board boilerplate clean-up
 │   │       └── llm/               # OpenAI-compatible client, provider chain, mock
-│   ├── tests/                     # 64 pytest tests
+│   ├── evals/                     # prompt evaluation harness + sample JDs
+│   ├── tests/                     # 72 pytest tests
 │   ├── Dockerfile
 │   └── .env.example
 ├── frontend/
@@ -162,13 +169,14 @@ flowchart TB
 
 ## How the tailoring works
 
-1. **Parse.** The upload is identified by magic bytes (not the extension), then text is extracted. Normalisation fixes ligatures (`ﬁ`→`fi`), odd bullet glyphs and unmapped `(cid:N)` characters, hyphenated line breaks and wrapped bullet lines. Hidden hyperlinks (LinkedIn/GitHub behind text) are recovered from PDF annotations and DOCX relationships.
-2. **Baseline score.** `keywords.py` extracts weighted JD keywords from a ~285-entry skills lexicon with aliases (`k8s`→Kubernetes, `Postgres`→PostgreSQL, `RESTful`→REST API) plus unusual acronyms (SOC2, HIPAA). Keywords in a "requirements / must have" context and repeated ones weigh more. The ATS checklist runs on the same text.
-3. **Prompt.** The system prompt (in `services/prompts.py`) sets a recruiter persona, non-negotiable truthfulness rules, per-section instructions (summary length, XYZ bullet formula, action verbs), the selected sections and tone, and a strict JSON schema. Every rewritten unit carries its **verbatim original**, which powers the diff and the guardrails. The schema's key order follows the page's reading order so the UI can render progressively while streaming.
-4. **Stream.** Tokens stream over SSE (with keep-alive pings so proxies don't cut idle connections). The frontend parses incomplete JSON on every frame and paints the resume as it's written.
-5. **Validate & repair.** The final text is parsed tolerantly (code fences, prose, trailing commas). If it's still invalid, the server retries once in strict JSON mode at lower temperature.
-6. **Guardrails.** Locked sections are restored; unevidenced skills are removed and moved to suggestions; bullets that introduce new numbers or tools are flagged; "missing" keywords the resume actually has are dropped.
-7. **Score again.** The same deterministic scorers run on the tailored resume, so the before/after comparison is apples-to-apples.
+1. **Clean.** Job-board boilerplate lines are dropped from the JD (only lines that are entirely boilerplate).
+2. **Parse.** The upload is identified by magic bytes (not the extension), then text is extracted. Normalisation fixes ligatures (`ﬁ`→`fi`), odd bullet glyphs and unmapped `(cid:N)` characters, hyphenated line breaks and wrapped bullet lines. Hidden hyperlinks (LinkedIn/GitHub behind text) are recovered from PDF annotations and DOCX relationships.
+3. **Baseline score.** `keywords.py` extracts weighted JD keywords from a ~285-entry skills lexicon with aliases (`k8s`→Kubernetes, `Postgres`→PostgreSQL, `RESTful`→REST API) plus unusual acronyms (SOC2, HIPAA). Keywords in a "requirements / must have" context and repeated ones weigh more. The ATS checklist runs on the same text.
+4. **Prompt.** The system prompt (in `services/prompts.py`) sets a recruiter persona, non-negotiable truthfulness rules, per-section instructions (summary length, XYZ bullet formula, action verbs), the selected sections and tone, and a strict JSON schema. Every rewritten unit carries its **verbatim original**, which powers the diff and the guardrails. The schema's key order follows the page's reading order so the UI can render progressively while streaming.
+5. **Stream.** Tokens stream over SSE (with keep-alive pings so proxies don't cut idle connections). The frontend parses incomplete JSON on every frame and paints the resume as it's written.
+6. **Validate & repair.** The final text is parsed tolerantly (code fences, prose, trailing commas). If it's still invalid, the server retries once in strict JSON mode at lower temperature.
+7. **Guardrails.** Locked sections are restored; unevidenced skills are removed and moved to suggestions; invented dates/locations are removed; bullets that introduce new numbers or tools are flagged; "missing" keywords the resume actually has are dropped.
+8. **Score again.** The same deterministic scorers run on the tailored resume, so the before/after comparison is apples-to-apples.
 
 ---
 
@@ -236,10 +244,11 @@ docker run -p 8000:8000 --env-file .env resume-customizer-api
 | `GET` | `/api/health` | Status, configured LLM providers and input limits. |
 | `POST` | `/api/resume/parse` | Multipart `file` (PDF/DOCX ≤ 5 MB) → text, metadata, detected sections, links, warnings. |
 | `POST` | `/api/score` | `{job_description, resume_text}` → match + ATS scores (no LLM). |
+| `POST` | `/api/jd/clean` | `{job_description}` → JD with job-board boilerplate removed + count. |
 | `POST` | `/api/tailor` | Tailor and return JSON in one response. |
 | `POST` | `/api/tailor/stream` | Same, as SSE: `status` → `delta`… → `result` (or `error`). |
 | `POST` | `/api/cover-letter` · `/stream` | Generate a cover letter (JSON or SSE). |
-| `POST` | `/api/export` | `{format: pdf\|docx\|md\|txt, resume? , cover_letter?}` → file download. |
+| `POST` | `/api/export` | `{format: pdf\|docx\|tex\|md\|txt, resume?, cover_letter?}` → file download. |
 | `POST` | `/api/auth/register` · `/login` | `{email, password, name?}` → `{token, user}`. |
 | `GET` | `/api/auth/me` | Current user. |
 | `GET` · `DELETE` | `/api/history` · `/api/history/{id}` | List, open or delete saved runs. |
@@ -262,13 +271,48 @@ Errors always look like `{"error": {"code": "jd_too_short", "message": "…human
 
 ---
 
+## Evaluating the prompt
+
+Prompt quality is 20% of the brief, so it's measured rather than eyeballed. With a real API key in `backend/.env`:
+
+```bash
+cd backend
+python -m evals.run_eval              # 4 JDs (backend, frontend, data, ML) × the sample resume
+python -m evals.run_eval --judge      # + LLM-as-judge grades for truthfulness, relevance, readability
+python -m evals.run_eval --resume ~/my_resume.pdf --tone impact
+```
+
+It writes `evals/report.md` with one row per JD:
+
+| Metric | What it catches | Target |
+|---|---|---|
+| `valid_first_try` | Model broke the JSON schema and needed the repair call | True |
+| `match_before → after`, `ats_before → after` | Whether tailoring actually helps (same deterministic scorer) | ↑ |
+| `skills_stripped`, `bullets_flagged`, `details_removed` | Hallucinated skills, numbers, tools, dates — caught by guardrails | 0 |
+| `summary_words`, `action_verb_pct`, `avg_bullet_words` | Prompt's style rules followed | 40–70, ≥ 85%, ≤ 30 |
+| `max_keyword_repeats` | Keyword stuffing | ≤ 3 |
+
+Change the prompt in `app/services/prompts.py`, rerun, compare reports.
+
+## Ideas adopted from similar projects
+
+Before finalising, three open-source projects with the same goal were reviewed. What was adopted — and what was deliberately not:
+
+| Project | Adopted | Not adopted (and why) |
+|---|---|---|
+| **MatchMyJD** (Python matching engine) | Must-have vs nice-to-have coverage; "skills with evidence" (shown in a bullet vs only listed); JD noise removal. | Embedding-based semantic matching via `sentence-transformers` — pulls in PyTorch (~1 GB), too heavy for a free-tier container; the LLM already handles semantic alignment. |
+| **Resume-Customizer** (Next.js + LaTeX) | LaTeX export + "Open in Overleaf"; prompt rules to never invent dates/locations, avoid keyword stuffing, spell out acronyms once, one category per skill. | Letting the LLM grade the ATS score and instructing it that tailored resumes "should score 30–40 points higher" — that inflates scores by design. Here scoring is deterministic and identical before/after. Also skipped server-side LaTeX compilation and S3 (heavy infra for no user benefit). |
+| **Resume-Tailor** (CLI/TUI) | An evaluation harness with a fixed set of JDs and an LLM-as-judge rubric. | A YAML "experience bank" workflow — a different product (you maintain a master list); this app works from the resume you already have. |
+
+---
+
 ## Edge cases handled
 
 **Files:** empty file · > 5 MB (checked while streaming the upload, not after) · images, `.txt`, renamed files (magic-byte detection) · legacy `.doc` · password-protected PDF and DOCX · corrupted PDF/DOCX · scanned image-only PDF (explains OCR isn't supported) · > 10 pages · too little text · very long resumes (truncated with a warning) · multi-column/table layouts in DOCX · headers/footers · unmapped glyphs and ligatures · Unicode names in exports and download filenames.
 
-**Inputs:** empty / too short / too long JD · text that isn't a job description (heuristic + model check) · non-resume uploads (warning) · zero sections selected · prompt injection inside the JD or resume.
+**Inputs:** empty / too short / too long JD · job-board boilerplate in pasted JDs · text that isn't a job description (heuristic + model check) · non-resume uploads (warning) · zero sections selected · prompt injection inside the JD or resume.
 
-**LLM:** missing API keys (clear 503) · invalid key · rate limits (Retry-After, then failover) · 5xx · timeouts · empty responses · non-JSON or truncated JSON (tolerant parse + strict-mode retry) · `null` fields and invalid enums (coerced) · unsupported request params (dropped and retried) · connection dropped mid-stream · hallucinated skills, numbers and tools (guardrails).
+**LLM:** missing API keys (clear 503) · invalid key · rate limits (Retry-After, then failover) · 5xx · timeouts · empty responses · non-JSON or truncated JSON (tolerant parse + strict-mode retry) · `null` fields and invalid enums (coerced) · unsupported request params (dropped and retried) · connection dropped mid-stream · hallucinated skills, numbers, tools, dates and locations (guardrails) · LaTeX special characters (`& % $ # _ { } ~ ^ \`) in exports.
 
 **App:** sleeping free-tier backend (wake-up banner + retries) · network errors · user cancels generation · expired login tokens · other users' history (404) · per-IP rate limiting · CORS on error responses · page refresh mid-session (draft, resume and versions restored).
 
@@ -277,7 +321,7 @@ Errors always look like `{"error": {"code": "jd_too_short", "message": "…human
 ## Testing
 
 ```bash
-cd backend && python -m pytest       # 64 tests
+cd backend && python -m pytest       # 72 tests
 cd frontend && npx tsc --noEmit && npm run lint && npm run build
 ```
 
