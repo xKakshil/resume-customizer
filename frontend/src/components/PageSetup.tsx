@@ -1,10 +1,11 @@
 "use client";
 
+import { useState } from "react";
 import { Check, RotateCcw } from "lucide-react";
 import type { LayoutSettings, Margins, ParsedResume, TemplateId } from "@/lib/types";
 import { applyTemplate, originalMode, PRESETS } from "@/lib/layout";
 import { styleSummary } from "./InputPanel";
-import { cx } from "./ui";
+import { Button, cx } from "./ui";
 
 function Field({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
   return (
@@ -61,7 +62,17 @@ function Toggle({ checked, onChange, label, hint }: { checked: boolean; onChange
   );
 }
 
-export function PageSetup({ layout, onChange, parsed }: { layout: LayoutSettings; onChange: (l: LayoutSettings) => void; parsed: ParsedResume | null }) {
+export function PageSetup({ layout: applied, onChange: apply, parsed }: { layout: LayoutSettings; onChange: (l: LayoutSettings) => void; parsed: ParsedResume | null }) {
+  // Edits are a draft until "Apply", so the PDF isn't re-rendered on every keystroke.
+  const [layout, onChange] = useState<LayoutSettings>(applied);
+  const appliedKey = JSON.stringify(applied);
+  const dirty = JSON.stringify(layout) !== appliedKey;
+  const [synced, setSynced] = useState(appliedKey);
+  // Settings changed elsewhere (e.g. applied from the chat): show them here.
+  if (synced !== appliedKey) {
+    setSynced(appliedKey);
+    onChange(applied);
+  }
   // Any manual tweak keeps the chosen template label, except "original", which then
   // still edits the user's DOCX/LaTeX in place but uses the tweaked values for the PDF.
   const set = <K extends keyof LayoutSettings>(k: K, v: LayoutSettings[K]) => onChange({ ...layout, [k]: v });
@@ -76,7 +87,7 @@ export function PageSetup({ layout, onChange, parsed }: { layout: LayoutSettings
   ];
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 pb-2">
       <section>
         <h3 className="mb-2 font-medium">Template</h3>
         <div className="grid grid-cols-3 gap-2">
@@ -179,6 +190,17 @@ export function PageSetup({ layout, onChange, parsed }: { layout: LayoutSettings
       <button type="button" onClick={() => onChange(applyTemplate(layout.template, layout, parsed))} className="inline-flex items-center gap-1 text-[12.5px] text-muted hover:text-ink">
         <RotateCcw className="size-3.5" /> Reset to {layout.template === "original" ? "detected style" : `${PRESETS[layout.template].label} defaults`}
       </button>
+
+      <div className={cx("sticky bottom-0 -mx-1 flex items-center gap-2 border-t bg-desk px-1 py-3", dirty ? "border-rule" : "border-transparent")}>
+        <Button variant="primary" className="flex-1" disabled={!dirty} onClick={() => apply(layout)}>
+          <Check className="size-4" /> {dirty ? "Apply changes" : "Applied"}
+        </Button>
+        {dirty && (
+          <Button variant="ghost" onClick={() => onChange(applied)}>
+            Discard
+          </Button>
+        )}
+      </div>
     </div>
   );
 }
