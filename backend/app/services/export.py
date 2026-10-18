@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import io
 import os
+import re
 from xml.sax.saxutils import escape
 
 from app.models.schemas import TailoredResume
@@ -47,6 +48,21 @@ def _register_fonts() -> tuple[str, str]:
 # PDF
 # --------------------------------------------------------------------------- #
 def resume_pdf(r: TailoredResume) -> bytes:
+    """Render, and if the resume spills onto an extra page, retry with a tighter
+    layout and keep it when that saves a page (one-page fit)."""
+    data, pages = _resume_pdf(r, compact=False)
+    if pages > 1:
+        tight, tight_pages = _resume_pdf(r, compact=True)
+        if tight_pages < pages:
+            return tight
+    return data
+
+
+def pdf_page_count(data: bytes) -> int:
+    return len(re.findall(rb"/Type\s*/Page[^s]", data))
+
+
+def _resume_pdf(r: TailoredResume, *, compact: bool) -> tuple[bytes, int]:
     from reportlab.lib import colors
     from reportlab.lib.enums import TA_CENTER
     from reportlab.lib.pagesizes import A4
@@ -56,16 +72,17 @@ def resume_pdf(r: TailoredResume) -> bytes:
 
     font, bold = _register_fonts()
     accent = colors.Color(*ACCENT)
+    k = 0.93 if compact else 1.0  # type scale
     st = {
-        "name": ParagraphStyle("name", fontName=bold, fontSize=19, leading=23, alignment=TA_CENTER, textColor=accent),
-        "headline": ParagraphStyle("headline", fontName=font, fontSize=10.5, leading=14, alignment=TA_CENTER, textColor=colors.HexColor("#333333")),
-        "contact": ParagraphStyle("contact", fontName=font, fontSize=8.8, leading=12, alignment=TA_CENTER, textColor=colors.HexColor("#444444")),
-        "h": ParagraphStyle("h", fontName=bold, fontSize=10.5, leading=13, textColor=accent, spaceBefore=8, spaceAfter=1),
-        "body": ParagraphStyle("body", fontName=font, fontSize=9.6, leading=12.6),
-        "role": ParagraphStyle("role", fontName=bold, fontSize=9.8, leading=12.6),
-        "meta": ParagraphStyle("meta", fontName=font, fontSize=9, leading=12.6, alignment=2, textColor=colors.HexColor("#444444")),
-        "sub": ParagraphStyle("sub", fontName=font, fontSize=9.2, leading=12, textColor=colors.HexColor("#444444")),
-        "bullet": ParagraphStyle("bullet", fontName=font, fontSize=9.6, leading=12.4),
+        "name": ParagraphStyle("name", fontName=bold, fontSize=19 * k, leading=23 * k, alignment=TA_CENTER, textColor=accent),
+        "headline": ParagraphStyle("headline", fontName=font, fontSize=10.5 * k, leading=14 * k, alignment=TA_CENTER, textColor=colors.HexColor("#333333")),
+        "contact": ParagraphStyle("contact", fontName=font, fontSize=8.8 * k, leading=12 * k, alignment=TA_CENTER, textColor=colors.HexColor("#444444")),
+        "h": ParagraphStyle("h", fontName=bold, fontSize=10.5 * k, leading=13 * k, textColor=accent, spaceBefore=8 * k, spaceAfter=1),
+        "body": ParagraphStyle("body", fontName=font, fontSize=9.6 * k, leading=12.6 * k),
+        "role": ParagraphStyle("role", fontName=bold, fontSize=9.8 * k, leading=12.6 * k),
+        "meta": ParagraphStyle("meta", fontName=font, fontSize=9 * k, leading=12.6 * k, alignment=2, textColor=colors.HexColor("#444444")),
+        "sub": ParagraphStyle("sub", fontName=font, fontSize=9.2 * k, leading=12 * k, textColor=colors.HexColor("#444444")),
+        "bullet": ParagraphStyle("bullet", fontName=font, fontSize=9.6 * k, leading=12.4 * k),
     }
     e = lambda s: escape(s or "")
     story: list = []
@@ -148,10 +165,12 @@ def resume_pdf(r: TailoredResume) -> bytes:
                 story.extend(b)
 
     buf = io.BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=15 * mm, rightMargin=15 * mm, topMargin=13 * mm, bottomMargin=13 * mm,
+    margin = (12 if compact else 15) * mm
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=margin, rightMargin=margin, topMargin=(10 if compact else 13) * mm,
+                            bottomMargin=(10 if compact else 13) * mm,
                             title=f"{r.candidate.name} — Resume".strip(" —"), author=r.candidate.name or "", creator="Resume Customizer")
     doc.build(story)
-    return buf.getvalue()
+    return buf.getvalue(), doc.page
 
 
 def letter_pdf(text: str, name: str = "") -> bytes:

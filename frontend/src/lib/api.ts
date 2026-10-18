@@ -1,4 +1,4 @@
-import type { HistoryItem, ParsedResume, Scores, Section, TailoredResume, TailorResult, Tone, User } from "./types";
+import type { ExportCheck, HistoryItem, InterviewPrep, ParsedResume, Scores, Section, TailoredResume, TailorResult, Tone, User } from "./types";
 
 export const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
 
@@ -217,6 +217,17 @@ export const fetchJD = (url: string) =>
     body: JSON.stringify({ url }),
   });
 
+export const exportCheck = (resume: TailoredResume) =>
+  request<ExportCheck>("/api/export/check", { method: "POST", headers: headers(), body: JSON.stringify({ format: "pdf", resume }) });
+
+export const interviewPrep = (job_description: string, resume_text: string, count = 10, signal?: AbortSignal) =>
+  request<InterviewPrep>("/api/interview-prep", {
+    method: "POST",
+    headers: headers(),
+    body: JSON.stringify({ job_description, resume_text, count }),
+    signal,
+  });
+
 export const cleanJD = (job_description: string) =>
   request<{ job_description: string; removed_lines: number }>("/api/jd/clean", {
     method: "POST",
@@ -294,6 +305,8 @@ export const history = {
       { headers: headers(false) },
     ),
   remove: (id: number) => request<void>(`/api/history/${id}`, { method: "DELETE", headers: headers(false) }),
+  attachInterviewPrep: (id: number, prep: InterviewPrep) =>
+    request<{ ok: boolean }>(`/api/history/${id}/interview-prep`, { method: "PUT", headers: headers(), body: JSON.stringify({ prep }) }),
   attachCoverLetter: (id: number, text: string) =>
     request<{ ok: boolean }>(`/api/history/${id}/cover-letter`, { method: "PUT", headers: headers(), body: JSON.stringify({ text }) }),
 };

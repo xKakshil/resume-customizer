@@ -205,3 +205,39 @@ class AuthRequest(BaseModel):
         if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", v):
             raise ValueError("Enter a valid email address.")
         return v
+
+
+# ----------------------------------------------------------------------------- #
+# Interview preparation
+# ----------------------------------------------------------------------------- #
+class InterviewQuestion(Lenient):
+    category: Literal["behavioral", "technical", "project", "role"] = "technical"
+    question: str = ""
+    why_they_ask: str = ""
+    answer_points: list[str] = Field(default_factory=list)
+    based_on: str = ""  # which resume item backs the answer
+
+    @field_validator("category", mode="before")
+    @classmethod
+    def _norm_category(cls, v):
+        v = str(v or "technical").lower().strip()
+        return v if v in {"behavioral", "technical", "project", "role"} else "technical"
+
+
+class PrepGap(Lenient):
+    skill: str = ""
+    why_it_matters: str = ""
+    how_to_prepare: str = ""
+
+
+class InterviewPrep(Lenient):
+    role_fit: list[str] = Field(default_factory=list)
+    questions: list[InterviewQuestion] = Field(default_factory=list)
+    skill_gaps: list[PrepGap] = Field(default_factory=list)
+    questions_to_ask: list[str] = Field(default_factory=list)
+
+
+class InterviewPrepRequest(BaseModel):
+    job_description: str
+    resume_text: str
+    count: int = Field(default=10, ge=4, le=16)

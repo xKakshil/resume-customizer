@@ -120,6 +120,18 @@ def _restore_order(bullets: list[Bullet], resume: str) -> list[Bullet]:
     return sorted(bullets, key=pos)
 
 
+_STOP = {"the", "and", "for", "with", "from", "into", "that", "this", "using", "used", "was", "were", "are", "our", "its",
+         "their", "via", "over", "across", "within", "while", "which", "who", "has", "have", "had", "per", "all", "any"}
+
+
+def grounding(original: str, tailored: str) -> float:
+    """Share of the original bullet's content words that survive in the rewrite.
+    A low value means the rewrite drifted into new claims rather than rephrasing."""
+    words = lambda t: {w for w in re.findall(r"[a-z0-9+#][a-z0-9+#.,%-]*[a-z0-9+#%]|[a-z0-9]", t.lower()) if len(w) > 2 and w not in _STOP}
+    o = words(original)
+    return 1.0 if not o else len(o & words(tailored)) / len(o)
+
+
 def _ngrams(text: str, n: int = 8) -> set[tuple[str, ...]]:
     words = re.findall(r"[a-z0-9+#]+", text.lower())
     return {tuple(words[i:i + n]) for i in range(len(words) - n + 1)}
@@ -191,6 +203,9 @@ def apply_guardrails(r: TailoredResume, req: TailorRequest, resume: str, jd_keyw
                 flags.append("unverified_number:" + ",".join(sorted(new_nums)))
             if new_tech:
                 flags.append("unverified_skill:" + ",".join(sorted(new_tech)))
+            # The rewrite should still be recognisably the same achievement.
+            if b.original.strip() and grounding(b.original, b.tailored) < 0.3:
+                flags.append("low_grounding")
             # A recruiter red flag: wording lifted straight from the job post (8+ words in a row).
             if jd_grams and (_ngrams(b.tailored) & jd_grams) - _ngrams(b.original):
                 flags.append("copied_from_jd")

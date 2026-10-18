@@ -93,6 +93,7 @@ export interface TailorResult {
   };
   meta: { provider: string; model: string; tone: Tone; sections: Section[]; duration_ms: number; created_at: string };
   cover_letter?: string;
+  interview_prep?: InterviewPrep;
 }
 
 export interface ParsedResume {
@@ -106,6 +107,42 @@ export interface ParsedResume {
   links: string[];
   sections: string[];
   warnings: string[];
+  layout?: LayoutCheck[];
+}
+
+export interface LayoutCheck {
+  id: string;
+  label: string;
+  status: "pass" | "warn" | "fail";
+  detail: string;
+  tip: string | null;
+}
+
+export interface ExportCheck {
+  pages: number;
+  sections_expected: string[];
+  sections_found: string[];
+  bullets_total: number;
+  bullets_found: number;
+  contact_found: boolean;
+  layout: LayoutCheck[];
+}
+
+export interface InterviewQuestion {
+  category: "behavioral" | "technical" | "project" | "role";
+  question: string;
+  why_they_ask: string;
+  answer_points: string[];
+  based_on: string;
+}
+
+export interface InterviewPrep {
+  role_fit: string[];
+  questions: InterviewQuestion[];
+  skill_gaps: { skill: string; why_it_matters: string; how_to_prepare: string }[];
+  questions_to_ask: string[];
+  provider?: string;
+  model?: string;
 }
 
 export interface User {

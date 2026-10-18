@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api import auth, cover_letter, export, history, resume
+from app.api import auth, cover_letter, export, history, interview, resume
 from app.config import get_settings
 from app.core.errors import AppError, app_error_handler
 from app.models.db import init_db
@@ -88,7 +88,7 @@ def create_app() -> FastAPI:
         msg = str(first.get("msg", "Invalid request")).removeprefix("Value error, ")
         return JSONResponse(status_code=422, content={"error": {"code": "invalid_input", "message": f"{msg} ({field})" if field != "request" else msg}})
 
-    for r in (resume.router, cover_letter.router, export.router, auth.router, history.router):
+    for r in (resume.router, cover_letter.router, interview.router, export.router, auth.router, history.router):
         app.include_router(r)
 
     @app.get("/api/health", tags=["meta"])

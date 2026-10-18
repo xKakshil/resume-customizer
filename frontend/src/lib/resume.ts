@@ -84,7 +84,7 @@ export function changeCount(r: TailoredResume): { changed: number; total: number
   return { changed, total };
 }
 
-export type Flag = { kind: "number" | "skill" | "copied" | "other"; values: string[] };
+export type Flag = { kind: "number" | "skill" | "copied" | "drift" | "other"; values: string[] };
 
 export function parseFlag(flag: string): Flag {
   const [kind, rest = ""] = flag.split(":");
@@ -92,6 +92,7 @@ export function parseFlag(flag: string): Flag {
   if (kind === "unverified_number") return { kind: "number", values };
   if (kind === "unverified_skill") return { kind: "skill", values };
   if (kind === "copied_from_jd") return { kind: "copied", values };
+  if (kind === "low_grounding") return { kind: "drift", values };
   return { kind: "other", values };
 }
 
@@ -100,6 +101,7 @@ export function flagNote(f: Flag): string {
   if (f.kind === "number") return `${f.values.join(", ")} isn't in your original resume`;
   if (f.kind === "skill") return `${f.values.join(", ")} isn't mentioned in your original resume`;
   if (f.kind === "copied") return "reads like it was copied from the job post";
+  if (f.kind === "drift") return "drifted far from your original — make sure it's still accurate";
   return "verify this line";
 }
 

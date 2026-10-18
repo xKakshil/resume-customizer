@@ -48,6 +48,8 @@ class MockProvider(LLMProvider):
         resume = _between(user, "resume")
         if "cover letter" in system.lower():
             return _cover_letter(jd, resume)
+        if "interviewer and career coach" in system.lower():
+            return json.dumps(_interview(jd, resume))
         locked = set()
         m = re.search(r"Do NOT change ([^:]+):", system)
         if m:
@@ -178,3 +180,26 @@ def _cover_letter(jd: str, resume: str) -> str:
             "Across my projects and internships I've shipped features end to end, from API design to deployment, and I care about "
             "writing clear, tested code that teammates can build on.\n\nI'd welcome the chance to discuss how I can contribute to your team.\n\n"
             f"Sincerely,\n{name}")
+
+
+def _interview(jd: str, resume: str) -> dict:
+    kws = extract_jd_keywords(jd)
+    have = [k.name for k in kws if keyword_present(k.name, resume)]
+    gaps = [k.name for k in kws if not keyword_present(k.name, resume)]
+    _, secs = _split_sections(resume)
+    items = [e["head"].split("|")[0].strip() for e in _entries(secs.get("experience", []) + secs.get("projects", [])) if e["head"]]
+    qs = []
+    for skill in have[:3]:
+        qs.append({"category": "technical", "question": f"How have you used {skill} in production work?",
+                   "why_they_ask": f"Checks hands-on depth with {skill}.", "answer_points": [f"Describe where you used {skill}", "Explain one trade-off you made"],
+                   "based_on": items[0] if items else ""})
+    for item in items[:3]:
+        qs.append({"category": "project", "question": f"Walk me through {item}. What would you change today?",
+                   "why_they_ask": "Tests ownership and reflection.", "answer_points": ["Context and goal", "Your design choices", "Result and lesson"], "based_on": item})
+    qs.append({"category": "behavioral", "question": "Tell me about a time you missed a deadline.", "why_they_ask": "Accountability.",
+               "answer_points": ["Situation", "Task", "Action", "Result"], "based_on": ""})
+    qs.append({"category": "role", "question": "Why this role?", "why_they_ask": "Motivation and fit.", "answer_points": ["Link your work to the team's mission"], "based_on": ""})
+    return {"role_fit": [f"Hands-on experience with {s}" for s in have[:4]],
+            "questions": qs,
+            "skill_gaps": [{"skill": g, "why_it_matters": f"The role lists {g}.", "how_to_prepare": f"Build a small project using {g} and be ready to discuss it."} for g in gaps[:4]],
+            "questions_to_ask": ["What does success look like in the first 90 days?", "How is the team's on-call organised?", "What is the biggest technical challenge right now?"]}

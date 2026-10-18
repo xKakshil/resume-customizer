@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 
 from app.config import get_settings
 from app.core.errors import FileTooLargeError, ParseError, UnsupportedFileError
+from app.services.layout_check import layout_checks
 
 PDF_MAGIC = b"%PDF-"
 ZIP_MAGIC = b"PK\x03\x04"
@@ -58,6 +59,7 @@ class ParsedResume:
     links: list[str] = field(default_factory=list)
     sections: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    layout: list[dict] = field(default_factory=list)
 
     @property
     def word_count(self) -> int:
@@ -75,6 +77,7 @@ class ParsedResume:
             "links": self.links,
             "sections": self.sections,
             "warnings": self.warnings,
+            "layout": self.layout,
         }
 
 
@@ -156,9 +159,14 @@ def parse_resume(data: bytes, filename: str) -> ParsedResume:
     if pages and pages > 3:
         warnings.append(f"Your resume is {pages} pages long. Most recruiters prefer 1–2 pages.")
 
+    layout = layout_checks(data, file_type)
+    for c in layout:
+        if c["status"] == "fail" and c["id"] in {"columns", "textboxes", "glyphs"}:
+            warnings.append(f"{c['detail']} {c['tip']}")
+
     return ParsedResume(
         text=text, filename=filename or f"resume.{file_type}", file_type=file_type,
-        size_bytes=len(data), pages=pages, links=links, sections=sections, warnings=warnings,
+        size_bytes=len(data), pages=pages, links=links, sections=sections, warnings=warnings, layout=layout,
     )
 
 

@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
-import { AlertTriangle, Check, CheckCircle2, CircleDashed, ShieldCheck, Sparkles, XCircle } from "lucide-react";
-import type { AtsResult, ConfirmedSkill, MatchResult, TailoredResume, TailorResult } from "@/lib/types";
+import { useEffect, useState } from "react";
+import { AlertTriangle, Check, CheckCircle2, CircleDashed, Loader2, ShieldCheck, Sparkles, XCircle } from "lucide-react";
+import { exportCheck } from "@/lib/api";
+import type { AtsResult, ConfirmedSkill, ExportCheck, LayoutCheck, MatchResult, TailoredResume, TailorResult } from "@/lib/types";
 import { Button, cx } from "./ui";
 
 /** A ruler from 0–100 with a "before" tick and an "after" marker. */
@@ -102,6 +103,79 @@ function AtsChecks({ before, after }: { before: AtsResult; after?: AtsResult }) 
   );
 }
 
+export function LayoutPanel({ checks, title = "How an ATS reads your file" }: { checks: LayoutCheck[]; title?: string }) {
+  if (!checks?.length) return null;
+  const Icon = { pass: CheckCircle2, warn: AlertTriangle, fail: XCircle };
+  const color = { pass: "text-green", warn: "text-amber", fail: "text-red" };
+  const problems = checks.filter((c) => c.status !== "pass").length;
+  return (
+    <Panel title={title} aside={<span className="text-[13px] text-muted">{problems ? `${problems} to fix` : "No layout problems"}</span>}>
+      <p className="-mt-1 mb-2 text-[13.5px] text-ink-2">Checks the uploaded file itself — columns, tables, images, headers — the layout issues that make ATS parsers drop or scramble text.</p>
+      <ul className="divide-y divide-rule-soft">
+        {checks.map((c) => {
+          const I = Icon[c.status];
+          return (
+            <li key={c.id} className="flex gap-3 py-2.5">
+              <I className={cx("mt-0.5 size-4 shrink-0", color[c.status])} aria-label={c.status} />
+              <div>
+                <div className="font-medium">{c.label}</div>
+                <p className="text-[13px] text-ink-2">{c.detail}</p>
+                {c.tip && <p className="mt-0.5 text-[13px] text-muted">{c.tip}</p>}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </Panel>
+  );
+}
+
+function ReadBackPanel({ getResume }: { getResume: () => TailoredResume }) {
+  const [res, setRes] = useState<ExportCheck | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    exportCheck(getResume())
+      .then((r) => alive && setRes(r))
+      .catch((e: Error) => alive && setError(e.message));
+    return () => {
+      alive = false;
+    };
+    // Run once per mount; the tab remounts when the version changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const ok = res && res.bullets_found === res.bullets_total && res.sections_found.length === res.sections_expected.length && res.contact_found;
+  return (
+    <Panel title="Your download, read back like an ATS">
+      {!res && !error && (
+        <p className="flex items-center gap-2 text-[13.5px] text-muted">
+          <Loader2 className="size-4 animate-spin" /> Rendering the PDF and parsing it back…
+        </p>
+      )}
+      {error && <p className="text-[13.5px] text-red">{error}</p>}
+      {res && (
+        <div className="flex gap-3">
+          {ok ? <ShieldCheck className="mt-0.5 size-5 shrink-0 text-green" aria-hidden /> : <AlertTriangle className="mt-0.5 size-5 shrink-0 text-amber" aria-hidden />}
+          <div className="space-y-1 text-[13.5px] text-ink-2">
+            <p>
+              We rendered your PDF and ran it through the same parser used for uploads:{" "}
+              <b className="text-ink">
+                {res.bullets_found}/{res.bullets_total} bullets
+              </b>
+              , <b className="text-ink">{res.sections_found.length}/{res.sections_expected.length} sections</b> and{" "}
+              <b className="text-ink">{res.contact_found ? "your contact details" : "no contact details"}</b> recovered.
+            </p>
+            <p>
+              {res.pages} page{res.pages > 1 ? "s" : ""}
+              {res.pages > 2 ? " — consider trimming; most recruiters prefer 1–2 pages." : " · single column · real text, no images."}
+            </p>
+          </div>
+        </div>
+      )}
+    </Panel>
+  );
+}
+
 function Panel({ title, children, aside }: { title: string; children: React.ReactNode; aside?: React.ReactNode }) {
   return (
     <section className="rounded-lg border border-rule-soft bg-paper p-4 sm:p-5">
@@ -194,7 +268,9 @@ export function InsightsView({
   onUnconfirm,
   onRegenerate,
   busy,
-}: { result: TailorResult; onRegenerate?: () => void; busy?: boolean } & ConfirmProps) {
+  layout,
+  getResume,
+}: { result: TailorResult; onRegenerate?: () => void; busy?: boolean; layout?: LayoutCheck[]; getResume?: () => TailoredResume } & ConfirmProps) {
   const { scores, resume: r, guardrails: g, meta } = result;
   const [which, setWhich] = useState<"after" | "before">("after");
   const match = (which === "after" ? scores.match.after : scores.match.before) ?? scores.match.before;
@@ -287,6 +363,10 @@ export function InsightsView({
         <AtsChecks before={scores.ats.before} after={scores.ats.after} />
       </Panel>
 
+      {getResume && <ReadBackPanel getResume={getResume} />}
+
+      {layout && layout.some((c) => c.status !== "pass") && <LayoutPanel checks={layout} title="Your original file's layout" />}
+
       <JDPanel r={r} />
 
       <Panel title="Truthfulness check">
@@ -352,7 +432,7 @@ function JDPanel({ r }: { r: TailoredResume }) {
   );
 }
 
-export function BaselineInsights({ match, ats }: { match: MatchResult; ats: AtsResult }) {
+export function BaselineInsights({ match, ats, layout }: { match: MatchResult; ats: AtsResult; layout?: LayoutCheck[] }) {
   return (
     <div className="mx-auto w-full max-w-[800px] space-y-4">
       <Panel title="Your resume, before tailoring">
@@ -368,6 +448,7 @@ export function BaselineInsights({ match, ats }: { match: MatchResult; ats: AtsR
       <Panel title="Keywords from the job">
         <KeywordChips match={match} />
       </Panel>
+      {layout && <LayoutPanel checks={layout} />}
       <Panel title="ATS checklist">
         <AtsChecks before={ats} />
       </Panel>

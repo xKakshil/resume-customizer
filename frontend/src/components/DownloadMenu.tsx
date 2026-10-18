@@ -49,8 +49,8 @@ export function DownloadMenu({ getResume }: { getResume: () => TailoredResume })
   return (
     <div className="relative" ref={ref}>
       <div className="flex">
-        <Button variant="primary" size="sm" className="rounded-r-none" onClick={() => dl("pdf")} loading={busy === "pdf"}>
-          {busy !== "pdf" && <Download className="size-3.5" />} Download PDF
+        <Button variant="primary" size="sm" className="rounded-r-none" onClick={() => dl("pdf")} loading={busy === "pdf"} title="Download as PDF">
+          {busy !== "pdf" && <Download className="size-3.5" />} Download
         </Button>
         <Button variant="primary" size="sm" className="rounded-l-none border-l border-white/25 px-1.5" aria-label="More download formats" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
           <ChevronDown className="size-4" />

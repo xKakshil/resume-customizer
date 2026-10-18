@@ -56,7 +56,12 @@ Paste a job description, upload your resume (PDF or DOCX), and get an **honest, 
 ### Beyond the brief
 
 - **Truthfulness guardrails** — after the model responds, the server strips any skill the resume doesn't evidence (moving it to "missing keywords"), removes dates or locations that aren't in the original, and flags any rewritten bullet that introduces a number or technology not in the original ("Check: 90% isn't in your original resume"). The model *cannot* silently inflate a resume.
+- **Interview prep** — a tab that predicts the questions this role will ask (technical, deep-dives on your own projects, behavioural, role fit), each with what the interviewer is checking and answer points drawn only from your resume, plus gaps to prepare and questions to ask back. Copy or download as Markdown.
+- **ATS layout check of your actual file** — inspects the uploaded PDF's geometry or the DOCX's XML for what really breaks ATS parsing: two-column layouts, tables, text boxes, images, contact details in headers/footers and garbled icon-font glyphs, each with a fix.
+- **Download read-back** — the tailored PDF is rendered and parsed back by the same parser used for uploads, proving every bullet, section and contact detail survives ("10/10 bullets, 5/5 sections recovered").
+- **One-page fit** — if the PDF spills onto an extra page, it is re-rendered with a slightly tighter layout and the tighter version is kept when it saves a page.
 - **"I have this" — honest gap closing** — every missing keyword has an *I have this* button with an optional note ("used Docker to deploy QuickLink"). Confirmed skills are fed to the next version and accepted by the guardrails as evidence, so a resume can truthfully improve beyond what the original text says.
+- **Grounding check** — a rewrite that keeps less than 30% of its original bullet's content words is flagged as drifted ("make sure it's still accurate").
 - **Copied-from-JD detector** — rewritten bullets that lift 8+ words verbatim from the job post are flagged; recruiters spot (and penalise) parroted JD language.
 - **Import JD from a link** — reads the schema.org `JobPosting` data most job boards embed (Greenhouse, Lever, Workday, Naukri…), falls back to the page's main text, and refuses private/internal addresses (SSRF-safe, redirect-checked, size- and time-limited). Sign-in-walled pages (e.g. LinkedIn) get a clear "paste the text instead".
 - **Local & private mode** — set `LLM_PROVIDERS=ollama` to run on a local model via [Ollama](https://ollama.com), no API key or data leaving the machine.
@@ -157,9 +162,10 @@ flowchart TB
 │   │       ├── latex.py           # LaTeX export (Overleaf-ready)
 │   │       ├── jd.py              # job-board boilerplate clean-up
 │   │       ├── jd_fetch.py        # import JD from URL (SSRF-safe, JSON-LD aware)
+│   │       ├── layout_check.py    # file-level ATS checks (columns, tables, images, headers)
 │   │       └── llm/               # OpenAI-compatible client, provider chain, mock
 │   ├── evals/                     # prompt evaluation harness + sample JDs
-│   ├── tests/                     # 94 pytest tests
+│   ├── tests/                     # 106 pytest tests
 │   ├── Dockerfile
 │   └── .env.example
 ├── frontend/
@@ -181,7 +187,7 @@ flowchart TB
 4. **Prompt.** The system prompt (in `services/prompts.py`) sets a recruiter persona, non-negotiable truthfulness rules, per-section instructions (summary length, XYZ bullet formula, action verbs), the selected sections and tone, and a strict JSON schema. Every rewritten unit carries its **verbatim original**, which powers the diff and the guardrails. The schema's key order follows the page's reading order so the UI can render progressively while streaming.
 5. **Stream.** Tokens stream over SSE (with keep-alive pings so proxies don't cut idle connections). The frontend parses incomplete JSON on every frame and paints the resume as it's written.
 6. **Validate & repair.** The final text is parsed tolerantly (code fences, prose, trailing commas). If it's still invalid, the server retries once in strict JSON mode at lower temperature.
-7. **Guardrails.** Evidence = the resume **plus skills the user explicitly confirmed**. Locked sections are restored; unevidenced skills are removed and moved to suggestions; invented dates/locations are removed; bullets that introduce new numbers or tools, or copy 8+ words from the JD, are flagged; "missing" keywords the resume actually has are dropped.
+7. **Guardrails.** Evidence = the resume **plus skills the user explicitly confirmed**. Locked sections are restored; unevidenced skills are removed and moved to suggestions; invented dates/locations are removed; bullets that introduce new numbers or tools, copy 8+ words from the JD, or drift too far from their original are flagged; "missing" keywords the resume actually has are dropped.
 8. **Score again.** The same deterministic scorers run on the tailored resume, so the before/after comparison is apples-to-apples.
 
 ---
@@ -255,11 +261,13 @@ docker run -p 8000:8000 --env-file .env resume-customizer-api
 | `POST` | `/api/tailor` | Tailor and return JSON in one response. |
 | `POST` | `/api/tailor/stream` | Same, as SSE: `status` → `delta`… → `result` (or `error`). |
 | `POST` | `/api/cover-letter` · `/stream` | Generate a cover letter (JSON or SSE). |
+| `POST` | `/api/interview-prep` | `{job_description, resume_text, count}` → role fit, likely questions with answer points, gaps, questions to ask. |
+| `POST` | `/api/export/check` | `{resume}` → render the PDF and parse it back: pages, sections/bullets/contact recovered. |
 | `POST` | `/api/export` | `{format: pdf\|docx\|tex\|md\|txt, resume?, cover_letter?}` → file download. |
 | `POST` | `/api/auth/register` · `/login` | `{email, password, name?}` → `{token, user}`. |
 | `GET` | `/api/auth/me` | Current user. |
 | `GET` · `DELETE` | `/api/history` · `/api/history/{id}` | List, open or delete saved runs. |
-| `PUT` | `/api/history/{id}/cover-letter` | Attach a cover letter to a saved run. |
+| `PUT` | `/api/history/{id}/cover-letter` · `/interview-prep` | Attach a cover letter or interview prep to a saved run. |
 
 Tailor request body:
 
@@ -304,7 +312,7 @@ Change the prompt in `app/services/prompts.py`, rerun, compare reports.
 
 ## Ideas adopted from similar projects
 
-Before finalising, seven open-source projects with the same goal were reviewed. What was adopted — and what was deliberately not:
+Before finalising, ten open-source projects with the same goal were reviewed. What was adopted — and what was deliberately not:
 
 | Project | Adopted | Not adopted (and why) |
 |---|---|---|
@@ -314,6 +322,9 @@ Before finalising, seven open-source projects with the same goal were reviewed. 
 | **jd-to-resume** (React + FastAPI) | Letting users add context their resume lacks → our *I have this* confirmations. | Feeding the model an AI-generated profile of *inferred* skills — exactly the fabrication the guardrails exist to stop. Only the user can confirm a skill. |
 | **ResumeGPT** (LangChain) | Its critic pass that hunts for "lazy copy-paste from the job posting" → our deterministic copied-from-JD flag; user verification before finalising → accept/revert + confirmations. | Five chain-of-thought LLM calls per resume (slow and costly); one structured call plus deterministic checks does the same job. |
 | **TailorCV** (Ollama CLI) | Importing the JD from a URL; local Ollama provider for privacy. | A second "coherence" LLM pass — doubles latency; guardrails and scoring cover consistency deterministically. |
+| **Resume-Matcher** (Next.js + FastAPI, 27k★) | It independently follows the same principles as this app — deterministic, LLM-free scoring and no invented experience. Adopted: its ATS *parse check* idea (layout analysis of the real file + rendering the output and reading it back), the bullet *grounding* check, interview prep, and one-page fit. | MCP server, template designer and Playwright/Chromium PDF pipeline — a large surface area beyond this brief. |
+| **Resume-Analyzer-AI** (Streamlit + RAG) | Interview questions by category (HR/technical/coding) — merged into Interview prep. | Chat-with-resume RAG on FAISS + Hugging Face embeddings (heavy, off-task); an LLM-written "ATS Score: x/100". |
+| **resume-tailor-agent** (LangChain + Streamlit) | — tailoring, cover letter and gap analysis were already covered. | LangChain/Streamlit stack. |
 | **Tailored-Resume-Generator** (Next.js + FastAPI) | — (LaTeX output and keyword ideas were already covered). | A TF-IDF cosine "ATS score" multiplied by 1.8 — an inflated number; plus spaCy/scikit-learn dependencies for little gain. |
 
 ---
@@ -333,7 +344,7 @@ Before finalising, seven open-source projects with the same goal were reviewed. 
 ## Testing
 
 ```bash
-cd backend && python -m pytest       # 94 tests
+cd backend && python -m pytest       # 106 tests
 cd frontend && npx tsc --noEmit && npm run lint && npm run build
 ```
 

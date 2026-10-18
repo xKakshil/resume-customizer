@@ -12,6 +12,7 @@ from app.core.errors import InvalidInputError
 from app.models.schemas import ExportRequest
 from app.services import export as ex
 from app.services.latex import resume_tex
+from app.services.parsing import parse_resume
 from app.services.render import to_markdown, to_text
 
 router = APIRouter(prefix="/api", tags=["export"])
@@ -28,6 +29,33 @@ MIME = {
 def _safe_name(name: str, fallback: str) -> str:
     name = re.sub(r"[^\w\- ]+", "", name or "").strip().replace(" ", "_")
     return (name or fallback)[:80]
+
+
+@router.post("/export/check", summary="Render the resume PDF and read it back like an ATS would")
+async def export_check(body: ExportRequest):
+    """Round trip: our own PDF → the same parser used for uploads. Proves the
+    download is machine-readable: every section, bullet and contact detail recovered."""
+    if body.resume is None:
+        raise InvalidInputError("Nothing to check.", code="export_empty")
+    r = body.resume
+    data = await run_in_threadpool(ex.resume_pdf, r)
+    parsed = await run_in_threadpool(parse_resume, data, "check.pdf")
+    norm = lambda t: re.sub(r"[^a-z0-9]+", "", t.lower())
+    text = norm(parsed.text)
+    bullets = [b.tailored or b.original for item in [*r.experience, *r.projects] for b in item.bullets if (b.tailored or b.original).strip()]
+    found = sum(1 for b in bullets if norm(b)[:60] in text)
+    expected = [k for k, present in (("summary", bool(r.summary.tailored or r.summary.original)), ("skills", bool(r.skills.groups)),
+                                       ("experience", bool(r.experience)), ("projects", bool(r.projects)), ("education", bool(r.education))) if present]
+    email = r.candidate.contact.email
+    return {
+        "pages": ex.pdf_page_count(data),
+        "sections_expected": expected,
+        "sections_found": [s for s in expected if s in parsed.sections],
+        "bullets_total": len(bullets),
+        "bullets_found": found,
+        "contact_found": (not email) or norm(email) in text,
+        "layout": [c for c in parsed.layout if c["id"] in {"text_layer", "glyphs", "columns", "images"}],
+    }
 
 
 @router.post("/export", summary="Download a tailored resume or cover letter as PDF, DOCX, TXT or Markdown")

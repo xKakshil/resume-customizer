@@ -16,12 +16,13 @@ import { ChangesView } from "./ChangesView";
 import { BaselineInsights, InsightsView } from "./InsightsView";
 import { CoverLetterView } from "./CoverLetterView";
 import { CompareView } from "./CompareView";
+import { InterviewPrepView } from "./InterviewPrepView";
 import { DownloadMenu } from "./DownloadMenu";
 import { AuthDialog, HistoryDrawer } from "./AccountUI";
 import { useTermsRegex } from "./highlight";
 import { Button, cx, useToast } from "./ui";
 
-type Tab = "resume" | "changes" | "insights" | "cover" | "compare";
+type Tab = "resume" | "changes" | "insights" | "cover" | "interview" | "compare";
 const MAX_VERSIONS = 6;
 const STAGES: Record<string, string> = {
   connecting: "Sending to the editor",
@@ -533,6 +534,7 @@ export function Workbench() {
                       ["changes", "Changes"],
                       ["insights", "Insights"],
                       ["cover", "Cover letter"],
+                      ["interview", "Interview"],
                       ["compare", "Compare"],
                     ] as [Tab, string][]
                   ).map(([t, label]) => (
@@ -540,7 +542,7 @@ export function Workbench() {
                       key={t}
                       onClick={() => setTab(t)}
                       aria-current={tab === t ? "page" : undefined}
-                      className={cx("rounded-md px-3 py-1.5 text-[13.5px] transition-colors", tab === t ? "bg-paper font-medium shadow-sm" : "text-muted hover:text-ink")}
+                      className={cx("rounded-md px-2.5 py-1.5 text-[13.5px] transition-colors", tab === t ? "bg-paper font-medium shadow-sm" : "text-muted hover:text-ink")}
                     >
                       {label}
                       {t === "insights" && active.result.scores.match.after?.score != null && <span className="ml-1.5 tabular-nums text-blue">{active.result.scores.match.after.score}</span>}
@@ -556,7 +558,7 @@ export function Workbench() {
                       <span className="sr-only">Highlight keywords</span>
                     </Button>
                     <Button variant={editing ? "primary" : "ghost"} size="sm" onClick={() => setEditing((e) => !e)} aria-pressed={editing}>
-                      <PencilLine className="size-4" /> {editing ? "Done editing" : "Edit"}
+                      <PencilLine className="size-4" /> {editing ? "Done" : "Edit"}
                     </Button>
                   </>
                 )}
@@ -578,6 +580,9 @@ export function Workbench() {
                   onUnconfirm={unconfirmSkill}
                   onRegenerate={tailor}
                   busy={streaming}
+                  layout={parsed?.layout}
+                  getResume={getEffective}
+                  key={active.key}
                 />
               )}
               {tab === "cover" && (
@@ -591,6 +596,18 @@ export function Workbench() {
                   runId={active.result.id}
                   signedIn={!!user}
                   onChange={(text) => updateActive((v) => ({ ...v, result: { ...v.result, cover_letter: text } }))}
+                />
+              )}
+              {tab === "interview" && (
+                <InterviewPrepView
+                  key={active.key}
+                  jd={jd}
+                  resumeText={active.result.tailored_text || parsed?.text || ""}
+                  title={[active.result.resume.jd_analysis.role_title, active.result.resume.jd_analysis.company].filter(Boolean).join(" — ") || "this role"}
+                  initial={active.result.interview_prep}
+                  runId={active.result.id}
+                  signedIn={!!user}
+                  onChange={(p) => updateActive((v) => ({ ...v, result: { ...v.result, interview_prep: p } }))}
                 />
               )}
               {tab === "compare" && <CompareView versions={versions} activeKey={active.key} />}
@@ -612,7 +629,7 @@ export function Workbench() {
                 </nav>
                 <p className="text-[13px] text-muted">{baseline ? "Highlighted words already match the job." : "Paste the job description to see how well this fits."}</p>
               </div>
-              {preTab === "insights" && baseline ? <BaselineInsights match={baseline.match.before} ats={baseline.ats.before} /> : <OriginalPaper text={parsed.text} re={re} />}
+              {preTab === "insights" && baseline ? <BaselineInsights match={baseline.match.before} ats={baseline.ats.before} layout={parsed.layout} /> : <OriginalPaper text={parsed.text} re={re} />}
             </div>
           ) : (
             <EmptyDesk />
