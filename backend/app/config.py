@@ -22,7 +22,10 @@ class Settings(BaseSettings):
     # Keeps "thinking" short so tokens go to the answer; set empty to use the model default.
     gemini_reasoning_effort: str = "low"
     groq_api_key: str = ""
-    groq_model: str = "llama-3.3-70b-versatile"
+    # Groq retired llama-3.3-70b-versatile on 2026-08-16; gpt-oss-120b is its recommended replacement.
+    groq_model: str = "openai/gpt-oss-120b"
+    # gpt-oss is a reasoning model: keep reasoning short so the token budget goes to the answer.
+    groq_reasoning_effort: str = "low"
     groq_base_url: str = "https://api.groq.com/openai/v1"
     openai_api_key: str = ""
     openai_model: str = "gpt-4.1-mini"

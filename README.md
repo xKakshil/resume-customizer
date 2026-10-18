@@ -95,7 +95,7 @@ Paste a job description, upload your resume (PDF or DOCX), and get an **honest, 
 | Role | Provider | Model | Why |
 |---|---|---|---|
 | Primary | Google AI Studio (Gemini) | `gemini-3.8-flash` | Free tier, fast, strong instruction-following and long-context JSON output. `reasoning_effort=low` keeps latency down. |
-| Fallback | Groq | `llama-3.3-70b-versatile` | Free tier, very fast inference; takes over automatically on rate limits, 5xx or timeouts. |
+| Fallback | Groq | `openai/gpt-oss-120b` | Free tier, very fast inference; takes over automatically on rate limits, 5xx or timeouts. |
 | Optional | OpenAI | `gpt-4.1-mini` | Add `openai` to `LLM_PROVIDERS` if you have a key. |
 | Local | Ollama | `llama3.1` (any pulled model) | Fully local and private; add `ollama` to `LLM_PROVIDERS`. |
 
@@ -126,7 +126,7 @@ flowchart TB
 
     subgraph LLM["LLM providers"]
         GEM["Gemini<br/>gemini-3.8-flash"]
-        GROQ["Groq<br/>llama-3.3-70b"]
+        GROQ["Groq<br/>gpt-oss-120b"]
     end
 
     UI -- "multipart upload (XHR progress)" --> PARSE

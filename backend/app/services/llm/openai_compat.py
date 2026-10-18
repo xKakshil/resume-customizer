@@ -12,6 +12,7 @@ import asyncio
 import json
 import logging
 import random
+import re
 from collections.abc import AsyncIterator
 
 import httpx
@@ -69,6 +70,8 @@ class OpenAICompatProvider(LLMProvider):
                 retry_after = float(ra)
             except ValueError:
                 pass
+        if retry_after is None and (m := re.search(r'"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"', body)):
+            retry_after = float(m.group(1))  # Google APIs put the wait in the body, not a header
         snippet = body[:300].replace("\n", " ")
         if status in (401, 403):
             return ProviderError(f"authentication failed ({status})", retryable=False, status=status)
@@ -77,6 +80,11 @@ class OpenAICompatProvider(LLMProvider):
         if status >= 500:
             return ProviderError(f"provider server error ({status})", retryable=True, status=status, retry_after=retry_after)
         return ProviderError(f"request rejected ({status}): {snippet}", retryable=False, status=status)
+
+    @staticmethod
+    def _wait_too_long(err: ProviderError) -> bool:
+        """The provider asked us to wait longer than is worth it: hand over to the next one now."""
+        return (err.retry_after or 0) > 10
 
     async def _backoff(self, attempt: int, err: ProviderError) -> None:
         delay = err.retry_after if err.retry_after is not None else min(8.0, 0.8 * 2**attempt) + random.uniform(0, 0.4)
@@ -114,7 +122,7 @@ class OpenAICompatProvider(LLMProvider):
                             continue
                         if self._maybe_drop_unsupported(resp.status_code, resp.text):
                             continue
-                if not last.retryable or attempt == self._retries:
+                if not last.retryable or attempt == self._retries or self._wait_too_long(last):
                     break
                 log.warning("%s attempt %d failed: %s", self.name, attempt + 1, last)
                 await self._backoff(attempt, last)
@@ -162,7 +170,7 @@ class OpenAICompatProvider(LLMProvider):
             if emitted:
                 last.retryable = False
                 raise last
-            if not last.retryable or attempt == self._retries:
+            if not last.retryable or attempt == self._retries or self._wait_too_long(last):
                 raise last
             log.warning("%s stream attempt %d failed: %s", self.name, attempt + 1, last)
             await self._backoff(attempt, last)
