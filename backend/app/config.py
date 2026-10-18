@@ -61,6 +61,8 @@ class Settings(BaseSettings):
     @field_validator("database_url")
     @classmethod
     def _normalise_db_url(cls, v: str) -> str:
+        if not v.strip():  # blank DATABASE_URL means "use SQLite"
+            return "sqlite:///./resume_customizer.db"
         # Render/Neon/Heroku hand out postgres:// URLs; SQLAlchemy wants an explicit driver.
         if v.startswith("postgres://"):
             v = "postgresql://" + v[len("postgres://") :]

@@ -19,7 +19,6 @@ Paste a job description, upload your resume (PDF or DOCX), and get an **honest, 
 - [Deploy](#deploy)
 - [API reference](#api-reference)
 - [Evaluating the prompt](#evaluating-the-prompt)
-- [Ideas adopted from similar projects](#ideas-adopted-from-similar-projects)
 - [Edge cases handled](#edge-cases-handled)
 - [Testing](#testing)
 - [Limitations & trade-offs](#limitations--trade-offs)
@@ -320,23 +319,6 @@ It writes `evals/report.md` with one row per JD:
 | `max_keyword_repeats` | Keyword stuffing | ≤ 3 |
 
 Change the prompt in `app/services/prompts.py`, rerun, compare reports.
-
-## Ideas adopted from similar projects
-
-Before finalising, ten open-source projects with the same goal were reviewed. What was adopted — and what was deliberately not:
-
-| Project | Adopted | Not adopted (and why) |
-|---|---|---|
-| **MatchMyJD** (Python matching engine) | Must-have vs nice-to-have coverage; "skills with evidence" (shown in a bullet vs only listed); JD noise removal. | Embedding-based semantic matching via `sentence-transformers` — pulls in PyTorch (~1 GB), too heavy for a free-tier container; the LLM already handles semantic alignment. |
-| **Resume-Customizer** (Next.js + LaTeX) | LaTeX export + "Open in Overleaf"; prompt rules to never invent dates/locations, avoid keyword stuffing, spell out acronyms once, one category per skill. | Letting the LLM grade the ATS score and instructing it that tailored resumes "should score 30–40 points higher" — that inflates scores by design. Here scoring is deterministic and identical before/after. Also skipped server-side LaTeX compilation and S3 (heavy infra for no user benefit). |
-| **Resume-Tailor** (CLI/TUI) | An evaluation harness with a fixed set of JDs and an LLM-as-judge rubric. | A YAML "experience bank" workflow — a different product (you maintain a master list); this app works from the resume you already have. |
-| **jd-to-resume** (React + FastAPI) | Letting users add context their resume lacks → our *I have this* confirmations. | Feeding the model an AI-generated profile of *inferred* skills — exactly the fabrication the guardrails exist to stop. Only the user can confirm a skill. |
-| **ResumeGPT** (LangChain) | Its critic pass that hunts for "lazy copy-paste from the job posting" → our deterministic copied-from-JD flag; user verification before finalising → accept/revert + confirmations. | Five chain-of-thought LLM calls per resume (slow and costly); one structured call plus deterministic checks does the same job. |
-| **TailorCV** (Ollama CLI) | Importing the JD from a URL; local Ollama provider for privacy. | A second "coherence" LLM pass — doubles latency; guardrails and scoring cover consistency deterministically. |
-| **Resume-Matcher** (Next.js + FastAPI, 27k★) | It independently follows the same principles as this app — deterministic, LLM-free scoring and no invented experience. Adopted: its ATS *parse check* idea (layout analysis of the real file + rendering the output and reading it back), the bullet *grounding* check, and one-page fit. | MCP server, template designer and Playwright/Chromium PDF pipeline — a large surface area beyond this brief. |
-| **Resume-Analyzer-AI** (Streamlit + RAG) | Chat with your resume — reworked as a propose-and-approve chat editor. | Chat-with-resume RAG on FAISS + Hugging Face embeddings (heavy, off-task); an LLM-written "ATS Score: x/100". |
-| **resume-tailor-agent** (LangChain + Streamlit) | — tailoring, cover letter and gap analysis were already covered. | LangChain/Streamlit stack. |
-| **Tailored-Resume-Generator** (Next.js + FastAPI) | — (LaTeX output and keyword ideas were already covered). | A TF-IDF cosine "ATS score" multiplied by 1.8 — an inflated number; plus spaCy/scikit-learn dependencies for little gain. |
 
 ---
 
