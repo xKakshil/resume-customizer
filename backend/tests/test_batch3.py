@@ -1,4 +1,4 @@
-"""Layout ATS check, grounding drift, one-page fit, export read-back, interview prep."""
+"""Layout ATS check, grounding drift, one-page fit, export read-back."""
 
 import io
 
@@ -109,17 +109,20 @@ def _long_resume(n_bullets: int) -> TailoredResume:
 
 
 def test_one_page_fit_compacts_slight_overflow():
+    from app.models.schemas import LayoutSettings
     from app.services.export import _resume_pdf
+    lay = LayoutSettings(show_summary=True)
     r = None
     for n in range(16, 60, 4):  # find a resume that just overflows one page at normal density
         cand = _long_resume(n)
-        _, normal = _resume_pdf(cand, compact=False)
-        _, tight = _resume_pdf(cand, compact=True)
+        _, normal = _resume_pdf(cand, lay, squeeze=1.0)
+        _, tight = _resume_pdf(cand, lay, squeeze=0.9)
         if normal == 2 and tight == 1:
             r = cand
             break
     assert r is not None, "no slight-overflow case found"
-    assert pdf_page_count(resume_pdf(r)) == 1
+    assert pdf_page_count(resume_pdf(r, lay)) == 1
+    assert pdf_page_count(resume_pdf(r, lay.model_copy(update={"one_page": False}))) == 2
 
 
 def test_export_check_round_trip(client):
@@ -128,37 +131,3 @@ def test_export_check_round_trip(client):
     res = client.post("/api/export/check", json={"format": "pdf", "resume": resume}).json()
     assert res["bullets_total"] > 0 and res["bullets_found"] == res["bullets_total"]
     assert set(res["sections_found"]) == set(res["sections_expected"]) and res["contact_found"] and res["pages"] >= 1
-
-
-# --------------------------------------------------------------------------- #
-def test_interview_prep(client):
-    from tests.test_api import payload
-    r = client.post("/api/interview-prep", json={**payload(), "count": 6})
-    assert r.status_code == 200, r.text
-    body = r.json()
-    assert 0 < len(body["questions"]) <= 6 and body["role_fit"] and body["questions_to_ask"]
-    assert {q["category"] for q in body["questions"]} <= {"behavioral", "technical", "project", "role"}
-    assert all(q["answer_points"] for q in body["questions"])
-
-
-def test_interview_prep_bad_output(client, monkeypatch):
-    from app.api import interview
-    from app.services.llm.factory import ProviderChain
-    from app.services.llm.mock import MockProvider
-
-    class Bad(MockProvider):
-        async def complete(self, *a, **k):
-            return "not json"
-    monkeypatch.setattr(interview, "get_chain", lambda: ProviderChain([Bad()]))
-    from tests.test_api import payload
-    r = client.post("/api/interview-prep", json=payload())
-    assert r.status_code == 502 and r.json()["error"]["code"] == "llm_bad_output"
-
-
-def test_history_attach_interview_prep(client):
-    from tests.test_api import payload
-    tok = client.post("/api/auth/register", json={"email": "prep@example.com", "password": "supersecret1"}).json()["token"]
-    h = {"Authorization": f"Bearer {tok}"}
-    rid = client.post("/api/tailor", json=payload(), headers=h).json()["id"]
-    assert client.put(f"/api/history/{rid}/interview-prep", json={"prep": {"questions": []}}, headers=h).status_code == 200
-    assert client.get(f"/api/history/{rid}", headers=h).json()["result"]["interview_prep"] == {"questions": []}

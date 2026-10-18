@@ -16,7 +16,9 @@ from app.models.db import Run, User, get_db, session
 from app.models.schemas import ScoreRequest, TailorRequest
 from app.services.jd import clean_jd
 from app.services.jd_fetch import fetch_job_description
+from app.services import uploads
 from app.services.parsing import parse_resume
+from app.services.style import detect_style
 from app.services.tailor import compute_scores, tailor, tailor_stream, validate_inputs
 
 router = APIRouter(prefix="/api", tags=["resume"])
@@ -42,12 +44,28 @@ async def _read_limited(file: UploadFile, limit: int) -> bytes:
     return b"".join(chunks)
 
 
-@router.post("/resume/parse", summary="Upload a PDF/DOCX resume and extract its text")
+def _parse_and_store(data: bytes, filename: str):
+    parsed = parse_resume(data, filename)
+    parsed.style = detect_style(data, parsed.file_type)
+    parsed.source_id = uploads.save(data, parsed.file_type, filename)
+    return parsed
+
+
+@router.post("/resume/parse", summary="Upload a PDF, DOCX or LaTeX resume: text, metadata, layout checks and detected style")
 async def parse(request: Request, file: UploadFile = File(...)):
     rate_limit.check(request, "parse", 40)
     data = await _read_limited(file, get_settings().max_upload_bytes)
-    parsed = await run_in_threadpool(parse_resume, data, file.filename or "")
+    parsed = await run_in_threadpool(_parse_and_store, data, file.filename or "")
     return parsed.to_dict()
+
+
+@router.post("/documents/parse", summary="Extract text from an optional supporting document (PDF, DOCX, TeX, TXT, MD)")
+async def parse_supporting(request: Request, file: UploadFile = File(...)):
+    rate_limit.check(request, "parse", 40)
+    data = await _read_limited(file, get_settings().max_upload_bytes)
+    parsed = await run_in_threadpool(parse_resume, data, file.filename or "", "supporting")
+    return {"text": parsed.text, "filename": parsed.filename, "file_type": parsed.file_type,
+            "size_bytes": parsed.size_bytes, "word_count": parsed.word_count, "warnings": parsed.warnings}
 
 
 @router.post("/score", summary="Keyword match + ATS score of a resume against a JD (no LLM)")

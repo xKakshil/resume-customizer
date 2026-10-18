@@ -1,16 +1,17 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { AlertTriangle, FileText, Link2, RefreshCw, Trash2, Upload, X } from "lucide-react";
-import type { ParsedResume, Section, Tone } from "@/lib/types";
-import { ALL_SECTIONS } from "@/lib/types";
+import { AlertTriangle, ChevronDown, ClipboardPaste, FilePlus2, FileText, Link2, RefreshCw, Trash2, Upload, X } from "lucide-react";
+import type { DetectedStyle, ParsedResume, Section, SupportingDoc, Tone } from "@/lib/types";
 import { formatBytes } from "@/lib/resume";
 import { Button, Segmented, cx } from "./ui";
 
 export const MIN_JD = 100;
 export const MAX_JD = 20_000;
 export const MAX_MB = 5;
-const ACCEPT = ".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+const ACCEPT = ".pdf,.docx,.tex,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/x-tex";
+const DOC_ACCEPT = ".pdf,.docx,.tex,.txt,.md";
+export const MAX_DOCS = 5;
 
 // ---------------------------------------------------------------------------
 export function JDInput({
@@ -122,7 +123,7 @@ export function JDInput({
 export function validateFile(file: File): string | null {
   const name = file.name.toLowerCase();
   if (name.endsWith(".doc")) return "Legacy .doc files aren't supported. Save it as PDF or DOCX and try again.";
-  if (!name.endsWith(".pdf") && !name.endsWith(".docx")) return "Please upload a PDF or DOCX file.";
+  if (!/\.(pdf|docx|tex)$/.test(name)) return "Please upload a PDF, Word (.docx) or LaTeX (.tex) file.";
   if (file.size === 0) return "This file is empty.";
   if (file.size > MAX_MB * 1024 * 1024) return `This file is ${formatBytes(file.size)}. The limit is ${MAX_MB} MB.`;
   return null;
@@ -175,6 +176,7 @@ export function ResumeUpload({
                 {parsed.file_type?.toUpperCase()}
                 {parsed.pages ? ` · ${parsed.pages} page${parsed.pages > 1 ? "s" : ""}` : ""} · {parsed.word_count} words
               </div>
+              {parsed.style?.detected && <div className="mt-0.5 text-xs text-ink-2">Template: {styleSummary(parsed.style)}</div>}
             </div>
             <div className="flex shrink-0 gap-1">
               <button type="button" disabled={disabled} onClick={() => input.current?.click()} className="rounded-md p-1.5 text-muted hover:bg-desk-2 hover:text-ink disabled:opacity-50" title="Replace file" aria-label="Replace file">
@@ -237,7 +239,7 @@ export function ResumeUpload({
             <div className="text-sm">
               <span className="font-medium text-blue">Choose a file</span> or drop it here
             </div>
-            <div className="text-xs text-muted">PDF or DOCX, up to {MAX_MB} MB</div>
+            <div className="text-xs text-muted">PDF, DOCX or LaTeX (.tex) · up to {MAX_MB} MB</div>
           </>
         )}
       </button>
@@ -252,6 +254,14 @@ export function ResumeUpload({
   );
 }
 
+export function styleSummary(st: DetectedStyle): string {
+  const m = st.margins;
+  const margins = m ? (new Set([m.top, m.bottom, m.left, m.right].map((x) => x.toFixed(2))).size === 1 ? `${m.left}″ margins` : `${m.left}″ side margins`) : "";
+  return [st.font_family === "serif" ? "serif" : st.font_family === "sans" ? "sans-serif" : "", st.font_size ? `${st.font_size} pt` : "", st.page_size, margins]
+    .filter(Boolean)
+    .join(" · ");
+}
+
 // ---------------------------------------------------------------------------
 const SECTION_LABEL: Record<Section, string> = { summary: "Summary", skills: "Skills", experience: "Experience", projects: "Projects" };
 export const TONES: { value: Tone; label: string; hint: string }[] = [
@@ -261,6 +271,8 @@ export const TONES: { value: Tone; label: string; hint: string }[] = [
   { value: "leadership", label: "Leadership", hint: "Ownership, mentoring, collaboration" },
   { value: "concise", label: "Concise", hint: "Tighter bullets and a two-line summary" },
 ];
+
+const EDITABLE: Section[] = ["skills", "experience", "projects"];
 
 export function Options({
   sections,
@@ -279,25 +291,30 @@ export function Options({
   onExtra: (s: string) => void;
   disabled?: boolean;
 }) {
+  const order: Section[] = ["summary", ...EDITABLE];
+  const set = (next: Section[]) => onSections(order.filter((x) => next.includes(x)));
   const toggle = (s: Section) => {
-    const next = sections.includes(s) ? sections.filter((x) => x !== s) : ALL_SECTIONS.filter((x) => x === s || sections.includes(x));
-    if (next.length) onSections(next);
+    const next = sections.includes(s) ? sections.filter((x) => x !== s) : [...sections, s];
+    if (next.some((x) => x !== "summary")) set(next);
   };
+  const editable = sections.filter((s) => s !== "summary");
+  const wantsSummary = sections.includes("summary");
   return (
     <div className="space-y-4">
       <fieldset>
-        <legend className="mb-1.5 font-medium">Sections to rewrite</legend>
+        <legend className="mb-1.5 font-medium">Sections to edit</legend>
         <div className="flex flex-wrap gap-1.5">
-          {ALL_SECTIONS.map((s) => {
+          {EDITABLE.map((s) => {
             const on = sections.includes(s);
+            const last = on && editable.length === 1;
             return (
               <button
                 key={s}
                 type="button"
-                disabled={disabled || (on && sections.length === 1)}
+                disabled={disabled || last}
                 aria-pressed={on}
                 onClick={() => toggle(s)}
-                title={on && sections.length === 1 ? "Keep at least one section selected" : undefined}
+                title={last ? "Keep at least one section selected" : undefined}
                 className={cx(
                   "rounded-full border px-3 py-1 text-[13px] transition-colors disabled:cursor-not-allowed",
                   on ? "border-blue bg-blue-wash text-blue-ink" : "border-rule bg-paper text-muted hover:text-ink",
@@ -309,8 +326,16 @@ export function Options({
             );
           })}
         </div>
-        <p className="mt-1 text-xs text-muted">Unselected sections stay exactly as written.</p>
+        <p className="mt-1 text-xs text-muted">Unselected sections stay word-for-word.</p>
       </fieldset>
+
+      <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-rule bg-paper px-3 py-2.5">
+        <input type="checkbox" className="mt-0.5 size-4 accent-[var(--blue)]" checked={wantsSummary} disabled={disabled} onChange={() => toggle("summary")} />
+        <span>
+          <span className="block text-sm font-medium">Include a summary</span>
+          <span className="block text-xs text-muted">Off by default. When on, a 2–3 line summary is written from your real experience.</span>
+        </span>
+      </label>
 
       <div>
         <div className="mb-1.5 font-medium" id="tone-label">
@@ -322,7 +347,7 @@ export function Options({
 
       <div>
         <label htmlFor="extra" className="mb-1.5 block font-medium">
-          Anything to keep in mind? <span className="font-normal text-muted">(optional)</span>
+          Instructions <span className="font-normal text-muted">(optional)</span>
         </label>
         <input
           id="extra"
@@ -330,10 +355,145 @@ export function Options({
           disabled={disabled}
           maxLength={500}
           onChange={(e) => onExtra(e.target.value)}
-          placeholder="e.g. Emphasise my backend work over frontend"
+          placeholder="e.g. Put backend work before frontend"
           className="h-10 w-full rounded-lg border border-rule bg-paper px-3 text-sm outline-none focus:border-blue disabled:opacity-60"
         />
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+/** Optional extra material: another resume, project write-ups, role details.
+ *  Used only as secondary evidence — never the primary resume. */
+export function SupportingDocs({
+  docs,
+  onAdd,
+  onRemove,
+  onRename,
+  onUpload,
+  disabled,
+}: {
+  docs: SupportingDoc[];
+  onAdd: (d: Omit<SupportingDoc, "id">) => void;
+  onRemove: (id: string) => void;
+  onRename: (id: string, label: string) => void;
+  onUpload: (f: File) => Promise<void>;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(docs.length > 0);
+  const [pasting, setPasting] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [label, setLabel] = useState("");
+  const [text, setText] = useState("");
+  const input = useRef<HTMLInputElement>(null);
+  const full = docs.length >= MAX_DOCS;
+  const words = (t: string) => (t.trim() ? t.trim().split(/\s+/).length : 0);
+
+  return (
+    <div className="rounded-lg border border-rule bg-paper">
+      <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="flex w-full items-center gap-2 px-3 py-2.5 text-left">
+        <FilePlus2 className="size-4 text-blue" aria-hidden />
+        <span className="flex-1">
+          <span className="block text-sm font-medium">
+            Extra material <span className="font-normal text-muted">(optional)</span>
+            {docs.length > 0 && <span className="ml-1.5 rounded-full bg-blue-wash px-1.5 py-px text-[11px] font-medium text-blue-ink">{docs.length}</span>}
+          </span>
+          <span className="block text-xs text-muted">Another resume, project notes, role details — used as background only.</span>
+        </span>
+        <ChevronDown className={cx("size-4 text-muted transition-transform", open && "rotate-180")} aria-hidden />
+      </button>
+      {open && (
+        <div className="space-y-2 border-t border-rule-soft px-3 pb-3 pt-2.5">
+          {docs.map((d) => (
+            <div key={d.id} className="flex items-center gap-2 rounded-md bg-desk-2/60 px-2 py-1.5">
+              <FileText className="size-4 shrink-0 text-muted" aria-hidden />
+              <input
+                value={d.label}
+                onChange={(e) => onRename(d.id, e.target.value)}
+                maxLength={80}
+                disabled={disabled}
+                aria-label="Document label"
+                className="min-w-0 flex-1 bg-transparent text-sm outline-none focus:underline"
+              />
+              <span className="shrink-0 text-xs tabular-nums text-muted">{d.word_count} words</span>
+              <button type="button" onClick={() => onRemove(d.id)} disabled={disabled} className="rounded p-1 text-muted hover:text-red" aria-label={`Remove ${d.label}`}>
+                <X className="size-3.5" />
+              </button>
+            </div>
+          ))}
+          {pasting ? (
+            <div className="space-y-1.5">
+              <input
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
+                maxLength={80}
+                placeholder="Label, e.g. QuickLink project notes"
+                className="h-8 w-full rounded-md border border-rule bg-paper px-2 text-sm outline-none focus:border-blue"
+              />
+              <textarea
+                autoFocus
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                maxLength={20_000}
+                placeholder="Paste project details, responsibilities, results…"
+                className="scroll-thin block h-28 w-full resize-y rounded-md border border-rule bg-paper px-2 py-1.5 text-sm outline-none focus:border-blue"
+              />
+              <div className="flex justify-end gap-1.5">
+                <Button size="sm" variant="ghost" onClick={() => setPasting(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  disabled={text.trim().length < 30}
+                  onClick={() => {
+                    onAdd({ label: label.trim() || "Notes", text: text.trim(), word_count: words(text) });
+                    setText("");
+                    setLabel("");
+                    setPasting(false);
+                  }}
+                >
+                  Add
+                </Button>
+              </div>
+            </div>
+          ) : (
+            !full && (
+              <div className="flex gap-1.5">
+                <Button size="sm" variant="secondary" loading={busy} disabled={disabled} onClick={() => input.current?.click()}>
+                  <Upload className="size-3.5" /> Upload file
+                </Button>
+                <Button size="sm" variant="ghost" disabled={disabled} onClick={() => setPasting(true)}>
+                  <ClipboardPaste className="size-3.5" /> Paste text
+                </Button>
+              </div>
+            )
+          )}
+          <p className="text-xs text-muted">
+            {full ? `Up to ${MAX_DOCS} documents.` : "PDF, DOCX, LaTeX, TXT or Markdown."} Facts here can strengthen existing bullets and the summary; nothing is copied in as new experience.
+          </p>
+          <input
+            ref={input}
+            type="file"
+            accept={DOC_ACCEPT}
+            className="sr-only"
+            tabIndex={-1}
+            aria-hidden
+            onChange={async (e) => {
+              const f = e.target.files?.[0];
+              e.target.value = "";
+              if (!f) return;
+              setBusy(true);
+              try {
+                await onUpload(f);
+              } finally {
+                setBusy(false);
+              }
+            }}
+          />
+        </div>
+      )}
     </div>
   );
 }

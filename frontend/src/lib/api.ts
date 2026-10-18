@@ -1,4 +1,4 @@
-import type { ExportCheck, HistoryItem, InterviewPrep, ParsedResume, Scores, Section, TailoredResume, TailorResult, Tone, User } from "./types";
+import type { ChatResponse, ChatTurn, ConfirmedSkill, ExportCheck, HistoryItem, LayoutSettings, ParsedResume, Scores, Section, SupportingDoc, TailoredResume, TailorResult, Tone, User } from "./types";
 
 export const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
 
@@ -73,19 +73,35 @@ export const health = (signal?: AbortSignal) => request<Health>("/api/health", {
 
 /** Upload with progress (XHR, because fetch has no upload progress). */
 export function parseResume(file: File, onProgress?: (pct: number) => void, signal?: AbortSignal): Promise<ParsedResume> {
+  return upload<ParsedResume>("/api/resume/parse", file, onProgress, signal);
+}
+
+export interface ParsedDocument {
+  text: string;
+  filename: string;
+  file_type: string;
+  size_bytes: number;
+  word_count: number;
+  warnings: string[];
+}
+
+/** Supporting documents (other resumes, project write-ups…): PDF, DOCX, LaTeX, TXT or Markdown. */
+export const parseDocument = (file: File, onProgress?: (pct: number) => void) => upload<ParsedDocument>("/api/documents/parse", file, onProgress);
+
+function upload<T>(path: string, file: File, onProgress?: (pct: number) => void, signal?: AbortSignal): Promise<T> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", `${API_URL}/api/resume/parse`);
+    xhr.open("POST", `${API_URL}${path}`);
     xhr.timeout = 60_000;
     xhr.upload.onprogress = (e) => e.lengthComputable && onProgress?.(Math.round((e.loaded / e.total) * 100));
     xhr.onload = () => {
-      let body: { error?: { message: string; code: string } } & Partial<ParsedResume> = {};
+      let body: { error?: { message: string; code: string } } = {};
       try {
         body = JSON.parse(xhr.responseText);
       } catch {
         /* ignore */
       }
-      if (xhr.status >= 200 && xhr.status < 300) resolve(body as ParsedResume);
+      if (xhr.status >= 200 && xhr.status < 300) resolve(body as T);
       else reject(new ApiError(body.error?.message ?? `Upload failed (${xhr.status}).`, body.error?.code ?? "upload_failed", xhr.status));
     };
     xhr.onerror = () => reject(networkError(new Error("network")));
@@ -156,7 +172,8 @@ export interface TailorParams {
   tone: Tone;
   extra_instructions: string;
   resume_filename: string;
-  confirmed_skills: { keyword: string; context: string }[];
+  confirmed_skills: ConfirmedSkill[];
+  supporting_documents: { label: string; text: string }[];
 }
 
 export function tailorStream(
@@ -217,16 +234,53 @@ export const fetchJD = (url: string) =>
     body: JSON.stringify({ url }),
   });
 
-export const exportCheck = (resume: TailoredResume) =>
-  request<ExportCheck>("/api/export/check", { method: "POST", headers: headers(), body: JSON.stringify({ format: "pdf", resume }) });
+export interface ExportOptions {
+  layout?: LayoutSettings;
+  source_id?: string;
+}
 
-export const interviewPrep = (job_description: string, resume_text: string, count = 10, signal?: AbortSignal) =>
-  request<InterviewPrep>("/api/interview-prep", {
-    method: "POST",
-    headers: headers(),
-    body: JSON.stringify({ job_description, resume_text, count }),
-    signal,
-  });
+export const exportCheck = (resume: TailoredResume, opts: ExportOptions = {}) =>
+  request<ExportCheck>("/api/export/check", { method: "POST", headers: headers(), body: JSON.stringify({ format: "pdf", resume, ...opts }) });
+
+export interface ChatParams {
+  message: string;
+  history: ChatTurn[];
+  resume: TailoredResume;
+  job_description: string;
+  resume_text: string;
+  layout: LayoutSettings;
+  sections: Section[];
+  confirmed_skills: ConfirmedSkill[];
+  supporting_documents: { label: string; text: string }[];
+}
+
+export const chat = (params: ChatParams, signal?: AbortSignal) =>
+  request<ChatResponse>("/api/chat", { method: "POST", headers: headers(), body: JSON.stringify(params), signal });
+
+export const toSupporting = (docs: SupportingDoc[]) => docs.map((d) => ({ label: d.label.slice(0, 80) || "Supporting document", text: d.text.slice(0, 20_000) }));
+
+export interface Preview {
+  url: string;
+  mode: "original-file" | "style-match" | "template";
+  note: string;
+}
+
+/** Render the resume PDF for the in-app viewer (an object URL the caller must revoke). */
+export async function previewPdf(resume: TailoredResume, opts: ExportOptions, signal?: AbortSignal): Promise<Preview> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}/api/export`, { method: "POST", headers: headers(), body: JSON.stringify({ format: "pdf", resume, inline: true, ...opts }), signal });
+  } catch (e) {
+    throw networkError(e);
+  }
+  if (!res.ok) throw await toApiError(res);
+  const blob = await res.blob();
+  return {
+    url: URL.createObjectURL(new Blob([blob], { type: "application/pdf" })),
+    mode: (res.headers.get("x-render-mode") as Preview["mode"]) || "template",
+    note: decodeURIComponent(res.headers.get("x-render-note") || ""),
+  };
+}
 
 export const cleanJD = (job_description: string) =>
   request<{ job_description: string; removed_lines: number }>("/api/jd/clean", {
@@ -237,10 +291,10 @@ export const cleanJD = (job_description: string) =>
 
 /** Fetch the LaTeX source and open it as a new Overleaf project.
  *  The tab is opened synchronously (inside the click) so popup blockers allow it. */
-export async function openInOverleaf(resume: TailoredResume): Promise<void> {
+export async function openInOverleaf(resume: TailoredResume, opts: ExportOptions = {}): Promise<void> {
   const win = window.open("", "overleaf");
   try {
-    const res = await fetch(`${API_URL}/api/export`, { method: "POST", headers: headers(), body: JSON.stringify({ format: "tex", resume }) });
+    const res = await fetch(`${API_URL}/api/export`, { method: "POST", headers: headers(), body: JSON.stringify({ format: "tex", resume, ...opts }) });
     if (!res.ok) throw await toApiError(res);
     const tex = await res.text();
     const form = document.createElement("form");
@@ -264,8 +318,8 @@ export async function openInOverleaf(resume: TailoredResume): Promise<void> {
 }
 
 export async function downloadExport(
-  body: { format: ExportFormat; resume?: TailoredResume; cover_letter?: string; candidate_name?: string; filename?: string },
-): Promise<void> {
+  body: { format: ExportFormat; resume?: TailoredResume; cover_letter?: string; candidate_name?: string; filename?: string } & ExportOptions,
+): Promise<{ mode: string; note: string }> {
   let res: Response;
   try {
     res = await fetch(`${API_URL}/api/export`, { method: "POST", headers: headers(), body: JSON.stringify(body) });
@@ -286,6 +340,7 @@ export async function downloadExport(
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
+  return { mode: res.headers.get("x-render-mode") || "template", note: decodeURIComponent(res.headers.get("x-render-note") || "") };
 }
 
 // ---------------------------------------------------------------------------
@@ -305,8 +360,6 @@ export const history = {
       { headers: headers(false) },
     ),
   remove: (id: number) => request<void>(`/api/history/${id}`, { method: "DELETE", headers: headers(false) }),
-  attachInterviewPrep: (id: number, prep: InterviewPrep) =>
-    request<{ ok: boolean }>(`/api/history/${id}/interview-prep`, { method: "PUT", headers: headers(), body: JSON.stringify({ prep }) }),
   attachCoverLetter: (id: number, text: string) =>
     request<{ ok: boolean }>(`/api/history/${id}/cover-letter`, { method: "PUT", headers: headers(), body: JSON.stringify({ text }) }),
 };

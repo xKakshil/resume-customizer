@@ -144,7 +144,8 @@ def _ngrams(text: str, n: int = 8) -> set[tuple[str, ...]]:
 def apply_guardrails(r: TailoredResume, req: TailorRequest, resume: str, jd_keywords: list[kw.WeightedKeyword], jd: str = "") -> dict:
     report = {"removed_skills": [], "flagged_bullets": 0, "removed_details": [], "copied_from_jd": 0,
               "confirmed_used": [c.keyword for c in req.confirmed_skills],
-              "locked_sections": [s for s in ("summary", "skills", "experience", "projects") if s not in req.sections]}
+              "supporting_used": [d.label for d in req.supporting_documents],
+              "locked_sections": [s for s in ("skills", "experience", "projects") if s not in req.sections]}
     original_resume = resume
     resume = evidence_text(req, resume)  # confirmed skills count as evidence from here on
     resume_lex = kw.resume_skills(resume)
@@ -161,10 +162,9 @@ def apply_guardrails(r: TailoredResume, req: TailorRequest, resume: str, jd_keyw
             report["removed_details"].append(f"headline '{headline}'")
             r.candidate.headline = ""
 
-    # 1. Locked sections → originals.
-    if "summary" not in req.sections:
-        r.summary.tailored = r.summary.original
-        r.summary.rationale = ""
+    # 1. Summary is opt-in; locked sections → originals.
+    if not req.include_summary:
+        r.summary.tailored, r.summary.rationale, r.summary.flags = "", "", []
     for key in ("experience", "projects"):
         if key not in req.sections:
             for item in getattr(r, key):
@@ -206,7 +206,7 @@ def apply_guardrails(r: TailoredResume, req: TailorRequest, resume: str, jd_keyw
     r.skills.matched = [m for m in r.skills.matched if _evidenced(m, resume, resume_lex)]
 
     # 4a. Summary: same number/skill checks as bullets.
-    if "summary" in req.sections and r.summary.tailored and r.summary.tailored != r.summary.original:
+    if req.include_summary and r.summary.tailored and r.summary.tailored != r.summary.original:
         new_nums = set(_NUM_RE.findall(r.summary.tailored)) - resume_nums
         new_tech = kw.resume_skills(r.summary.tailored) - resume_lex - _ROLE_WORDS
         r.summary.flags = ([f"unverified_number:{','.join(sorted(new_nums))}"] if new_nums else []) + \
@@ -283,13 +283,49 @@ def build_result(r: TailoredResume, req: TailorRequest, jd: str, resume: str, pr
         raise LLMError("The AI couldn't find resume content to tailor. Check that the uploaded file is your resume.", code="llm_empty_resume")
     jd_keywords = kw.extract_jd_keywords(jd)
     guard = apply_guardrails(r, req, resume, jd_keywords, jd)
-    tailored_text = to_text(r)
+    return finalize(r, req, jd, resume, jd_keywords, guard, provider, model, started)
+
+
+def edit_stats(r: TailoredResume) -> dict:
+    """How much actually changed — precise, so users see edits were surgical."""
+    kept = light = rewritten = new = 0
+    for item in [*r.experience, *r.projects]:
+        for b in item.bullets:
+            t = (b.tailored or b.original).strip()
+            if not b.original.strip():
+                new += 1
+            elif t == b.original.strip():
+                kept += 1
+            elif grounding(b.original, t) >= 0.7:
+                light += 1
+            else:
+                rewritten += 1
+    return {"kept": kept, "light": light, "rewritten": rewritten, "new": new, "total": kept + light + rewritten + new}
+
+
+def keyword_locations(r: TailoredResume, match_after: dict, include_summary: bool) -> dict:
+    """For each matched JD keyword, which sections of the tailored resume contain it."""
+    sections = {
+        "summary": r.summary.tailored if include_summary else "",
+        "skills": "\n".join(", ".join(g.items) for g in r.skills.groups),
+        "experience": "\n".join(b.tailored or b.original for e in r.experience for b in e.bullets),
+        "projects": "\n".join([b.tailored or b.original for p in r.projects for b in p.bullets] + [", ".join(p.tech) for p in r.projects]),
+    }
+    return {m["keyword"]: [s for s, text in sections.items() if text and kw.keyword_present(m["keyword"], text)]
+            for m in match_after.get("matched", [])}
+
+
+def finalize(r: TailoredResume, req: TailorRequest, jd: str, resume: str, jd_keywords, guard: dict,
+             provider: str, model: str, started: float) -> dict:
+    tailored_text = to_text(r, include_summary=req.include_summary)
     scores = compute_scores(jd, resume, tailored_text, jd_keywords)
     scores["evidence"] = skill_evidence(r, scores["match"]["after"])
+    scores["locations"] = keyword_locations(r, scores["match"]["after"], req.include_summary)
     return {
         "resume": r.model_dump(),
         "tailored_text": tailored_text,
         "scores": scores,
+        "stats": edit_stats(r),
         "guardrails": guard,
         "meta": {"provider": provider, "model": model, "tone": req.tone, "sections": req.sections,
                  "duration_ms": int((time.perf_counter() - started) * 1000),
@@ -302,13 +338,15 @@ def build_result(r: TailoredResume, req: TailorRequest, jd: str, resume: str, pr
 # --------------------------------------------------------------------------- #
 def _messages(req: TailorRequest, jd: str, resume: str) -> list[dict]:
     return build_tailor_messages(jd, resume, req.sections, req.tone, req.extra_instructions,
-                                 [c.model_dump() for c in req.confirmed_skills])
+                                 [c.model_dump() for c in req.confirmed_skills],
+                                 [d.model_dump() for d in req.supporting_documents])
 
 
 def evidence_text(req: TailorRequest, resume: str) -> str:
-    """The resume plus anything the user explicitly confirmed — what guardrails accept as true."""
+    """The resume plus what the user explicitly confirmed or supplied — what guardrails accept as true."""
     extra = "\n".join(f"{c.keyword}: {c.context}".strip(": ") for c in req.confirmed_skills)
-    return f"{resume}\n{extra}" if extra else resume
+    docs = "\n".join(d.text for d in getattr(req, "supporting_documents", []))
+    return "\n".join(x for x in (resume, extra, docs) if x)
 
 
 async def tailor(req: TailorRequest) -> dict:

@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     min_resume_chars: int = 200
     max_resume_chars: int = 30_000
     max_pdf_pages: int = 10
+    upload_ttl_hours: int = 48
 
     # --- Security --------------------------------------------------------------
     cors_origins: str = "http://localhost:3000"

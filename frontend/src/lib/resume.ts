@@ -71,7 +71,8 @@ export function resumeToText(r: TailoredResume): string {
 export function changeCount(r: TailoredResume): { changed: number; total: number } {
   let changed = 0;
   let total = 0;
-  if (r.summary.tailored || r.summary.original) {
+  // An empty tailored summary means "not requested" (summary is opt-in), not "deleted".
+  if (r.summary.tailored) {
     total++;
     if (r.summary.tailored.trim() !== r.summary.original.trim()) changed++;
   }

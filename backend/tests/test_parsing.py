@@ -111,6 +111,7 @@ def test_exported_pdf_round_trips_with_bullets():
         "experience": [{"title": "Intern", "company": "Finlytics", "dates": "2025", "bullets": [{"original": "x", "tailored": "Cut p95 latency by 35% by adding Redis caching to hot endpoints in the payments API."}]}],
         "education": [{"degree": "B.Tech", "institution": "IIT (BHU)"}],
     })
-    parsed = parse_resume(resume_pdf(r), "out.pdf")
+    from app.models.schemas import LayoutSettings
+    parsed = parse_resume(resume_pdf(r, LayoutSettings(show_summary=True)), "out.pdf")
     assert "• Cut p95 latency by 35%" in parsed.text
     assert {"summary", "skills", "experience", "education"} <= set(parsed.sections)

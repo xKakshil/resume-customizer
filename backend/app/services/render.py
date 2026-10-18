@@ -14,7 +14,7 @@ def contact_line(r: TailoredResume) -> str:
     return _join(c.email, c.phone, c.location, *[l.url for l in c.links])
 
 
-def to_text(r: TailoredResume, *, tailored: bool = True) -> str:
+def to_text(r: TailoredResume, *, tailored: bool = True, include_summary: bool = True) -> str:
     out: list[str] = []
     pick = (lambda b: b.tailored or b.original) if tailored else (lambda b: b.original or b.tailored)
     if r.candidate.name:
@@ -24,7 +24,7 @@ def to_text(r: TailoredResume, *, tailored: bool = True) -> str:
     if line := contact_line(r):
         out.append(line)
 
-    summary = (r.summary.tailored or r.summary.original) if tailored else r.summary.original
+    summary = ((r.summary.tailored or r.summary.original) if tailored else r.summary.original) if include_summary else ""
     if summary:
         out += ["", "SUMMARY", summary]
 
@@ -57,7 +57,7 @@ def to_text(r: TailoredResume, *, tailored: bool = True) -> str:
     return "\n".join(out).strip()
 
 
-def to_markdown(r: TailoredResume) -> str:
+def to_markdown(r: TailoredResume, *, include_summary: bool = True) -> str:
     md: list[str] = []
     if r.candidate.name:
         md.append(f"# {r.candidate.name}")
@@ -65,7 +65,7 @@ def to_markdown(r: TailoredResume) -> str:
         md.append(f"**{r.candidate.headline}**")
     if line := contact_line(r):
         md.append(line)
-    if s := (r.summary.tailored or r.summary.original):
+    if include_summary and (s := (r.summary.tailored or r.summary.original)):
         md += ["", "## Summary", s]
     if r.skills.groups:
         md += ["", "## Skills"] + [f"- **{g.category}:** {', '.join(g.items)}" if g.category else f"- {', '.join(g.items)}"

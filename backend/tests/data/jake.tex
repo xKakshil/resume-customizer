@@ -1,0 +1,126 @@
+%-------------------------
+% Resume in Latex — based on Jake Gutierrez's template (MIT)
+%------------------------
+\documentclass[letterpaper,11pt]{article}
+
+\usepackage{latexsym}
+\usepackage[empty]{fullpage}
+\usepackage{titlesec}
+\usepackage{marvosym}
+\usepackage[usenames,dvipsnames]{color}
+\usepackage{verbatim}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\usepackage{fancyhdr}
+\usepackage[english]{babel}
+\usepackage{tabularx}
+\input{glyphtounicode}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyfoot{}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0pt}
+
+% Adjust margins
+\addtolength{\oddsidemargin}{-0.5in}
+\addtolength{\evensidemargin}{-0.5in}
+\addtolength{\textwidth}{1in}
+\addtolength{\topmargin}{-.5in}
+\addtolength{\textheight}{1.0in}
+
+\urlstyle{same}
+\raggedbottom
+\raggedright
+\setlength{\tabcolsep}{0in}
+
+\titleformat{\section}{
+  \vspace{-4pt}\scshape\raggedright\large
+}{}{0em}{}[\color{black}\titlerule \vspace{-5pt}]
+
+\pdfgentounicode=1
+
+\newcommand{\resumeItem}[1]{
+  \item\small{
+    {#1 \vspace{-2pt}}
+  }
+}
+\newcommand{\resumeSubheading}[4]{
+  \vspace{-2pt}\item
+    \begin{tabular*}{0.97\textwidth}[t]{l@{\extracolsep{\fill}}r}
+      \textbf{#1} & #2 \\
+      \textit{\small#3} & \textit{\small #4} \\
+    \end{tabular*}\vspace{-7pt}
+}
+\newcommand{\resumeProjectHeading}[2]{
+    \item
+    \begin{tabular*}{0.97\textwidth}{l@{\extracolsep{\fill}}r}
+      \small#1 & #2 \\
+    \end{tabular*}\vspace{-7pt}
+}
+\renewcommand\labelitemii{$\vcenter{\hbox{\tiny$\bullet$}}$}
+\newcommand{\resumeSubHeadingListStart}{\begin{itemize}[leftmargin=0.15in, label={}]}
+\newcommand{\resumeSubHeadingListEnd}{\end{itemize}}
+\newcommand{\resumeItemListStart}{\begin{itemize}}
+\newcommand{\resumeItemListEnd}{\end{itemize}\vspace{-5pt}}
+
+\begin{document}
+
+\begin{center}
+    \textbf{\Huge \scshape Aarav Sharma} \\ \vspace{1pt}
+    \small +91 98765 43210 $|$ \href{mailto:aarav.sharma@example.com}{\underline{aarav.sharma@example.com}} $|$
+    \href{https://linkedin.com/in/aarav-sharma}{\underline{linkedin.com/in/aarav-sharma}} $|$
+    \href{https://github.com/aarav-dev}{\underline{github.com/aarav-dev}}
+\end{center}
+
+\section{Summary}
+Software engineer with experience building web applications and APIs. Enjoys solving problems and learning new technologies.
+
+\section{Education}
+  \resumeSubHeadingListStart
+    \resumeSubheading
+      {Indian Institute of Technology (BHU) Varanasi}{Varanasi, India}
+      {B.Tech in Electronics Engineering; CGPA 8.1/10}{Aug. 2022 -- May 2026}
+  \resumeSubHeadingListEnd
+
+\section{Experience}
+  \resumeSubHeadingListStart
+    \resumeSubheading
+      {Software Engineer Intern}{Jan 2025 -- Jun 2025}
+      {Finlytics}{Bengaluru, India}
+      \resumeItemListStart
+        \resumeItem{Worked on the payments dashboard using \textbf{React} and TypeScript used by 12,000 merchants.}
+        \resumeItem{Responsible for building REST APIs in Node.js and Express backed by Postgres, cutting p95 latency by 35\%.}
+        \resumeItem{Wrote unit tests with Jest and set up GitHub Actions CI for the frontend repo.}
+        \resumeItem{Helped migrate cron jobs to a Redis-backed queue, reducing failed jobs by 60\%.}
+      \resumeItemListEnd
+
+    \resumeSubheading
+      {Frontend Developer Intern}{May 2024 -- Jul 2024}
+      {Opined}{Remote}
+      \resumeItemListStart
+        \resumeItem{Built reusable React components and improved Lighthouse performance score from 62 to 91.}
+        \resumeItem{Collaborated with designers in Figma to ship 8 responsive pages.}
+      \resumeItemListEnd
+  \resumeSubHeadingListEnd
+
+\section{Projects}
+    \resumeSubHeadingListStart
+      \resumeProjectHeading
+          {\textbf{QuickLink} $|$ \emph{TypeScript, Express, MongoDB, Redis}}{2024}
+          \resumeItemListStart
+            \resumeItem{Built a URL shortener with click analytics handling 1,000 requests per second in load tests.}
+            \resumeItem{Deployed with Docker on Render with Redis caching for hot links.}
+          \resumeItemListEnd
+    \resumeSubHeadingListEnd
+
+\section{Technical Skills}
+ \begin{itemize}[leftmargin=0.15in, label={}]
+    \small{\item{
+     \textbf{Languages}{: Python, TypeScript, JavaScript, C++, SQL} \\
+     \textbf{Frameworks}{: React, Next.js, Node.js, Express, FastAPI} \\
+     \textbf{Tools}{: Git, Docker, PostgreSQL, MongoDB, Redis, Jest, Figma}
+    }}
+ \end{itemize}
+
+\end{document}

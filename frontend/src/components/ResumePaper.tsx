@@ -15,6 +15,10 @@ interface Props {
   editable?: boolean;
   onEdit?: (path: string, text: string) => void;
   compact?: boolean;
+  /** Hide the summary (it's opt-in). Defaults to showing it when there is one. */
+  showSummary?: boolean;
+  /** Approximate the chosen page look in the on-screen paper (the PDF view is exact). */
+  look?: { font: "sans" | "serif"; align: "center" | "left" };
 }
 
 function AutoTextarea({ value, onChange, label }: { value: string; onChange: (v: string) => void; label: string }) {
@@ -57,10 +61,10 @@ function Flags({ b }: { b: Pick<Bullet, "flags"> }) {
   );
 }
 
-export function ResumePaper({ resume: r, version, re, streaming, editable, onEdit, compact }: Props) {
+export function ResumePaper({ resume: r, version, re, streaming, editable, onEdit, compact, showSummary = true, look }: Props) {
   const c = r.candidate?.contact ?? { email: "", phone: "", location: "", links: [] };
   const contact = [c.email, c.phone, c.location, ...(c.links ?? []).map((l) => l?.url ?? "")].filter(Boolean);
-  const summary = summaryText(version, r);
+  const summary = showSummary ? summaryText(version, r) : "";
 
   const bullets = (key: "experience" | "projects", i: number, list: Bullet[]) => (
     <ul className="ml-4 mt-0.5 list-disc space-y-0.5 marker:text-ink-2">
@@ -96,10 +100,10 @@ export function ResumePaper({ resume: r, version, re, streaming, editable, onEdi
 
   return (
     <article
-      className={cx("paper paper-text mx-auto w-full text-ink", compact ? "max-w-none px-5 py-6 text-[13px]" : "max-w-[800px] px-5 py-7 sm:px-12 sm:py-11", streaming && "caret-host")}
+      className={cx("paper paper-text mx-auto w-full text-ink", look?.font === "sans" && "look-sans", compact ? "max-w-none px-5 py-6 text-[13px]" : "max-w-[800px] px-5 py-7 sm:px-12 sm:py-11", streaming && "caret-host")}
       aria-busy={streaming}
     >
-      <header className="mb-4 text-center">
+      <header className={cx("mb-4", look?.align === "left" ? "text-left" : "text-center")}>
         {r.candidate?.name ? (
           <h2 className={cx("font-serif font-semibold tracking-tight", compact ? "text-xl" : "text-[28px] leading-tight")}>{r.candidate.name}</h2>
         ) : (

@@ -119,6 +119,11 @@ body {
   line-height: 1.6;
 }
 
+.paper-text.look-sans {
+  font-family: var(--font-sans);
+  font-size: 14px;
+}
+
 /* Highlighter: slightly ragged like a real marker stroke. */
 mark.hl {
   color: inherit;

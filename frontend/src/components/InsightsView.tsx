@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { AlertTriangle, Check, CheckCircle2, CircleDashed, Loader2, ShieldCheck, Sparkles, XCircle } from "lucide-react";
-import { exportCheck } from "@/lib/api";
-import type { AtsResult, ConfirmedSkill, ExportCheck, LayoutCheck, MatchResult, TailoredResume, TailorResult } from "@/lib/types";
+import { exportCheck, type ExportOptions } from "@/lib/api";
+import type { AtsResult, ConfirmedSkill, EditStats, ExportCheck, LayoutCheck, MatchResult, TailoredResume, TailorResult } from "@/lib/types";
 import { Button, cx } from "./ui";
 
 /** A ruler from 0–100 with a "before" tick and an "after" marker. */
@@ -41,16 +41,24 @@ export function ScoreRuler({ label, before, after, caption }: { label: string; b
   );
 }
 
-function KeywordChips({ match, re }: { match: MatchResult; re?: boolean }) {
+const LOC_SHORT: Record<string, string> = { summary: "Sum", skills: "Skills", experience: "Exp", projects: "Proj" };
+
+function KeywordChips({ match, re, locations }: { match: MatchResult; re?: boolean; locations?: Record<string, string[]> }) {
   return (
     <div className="space-y-3">
       <div>
         <div className="mb-1.5 text-[13px] text-muted">In your resume ({match.matched.length})</div>
         <div className="flex flex-wrap gap-1.5">
           {match.matched.map((k) => (
-            <span key={k.keyword} className="rounded-sm px-1.5 py-0.5 text-[13px]" style={{ background: "var(--hl-soft)" }} title={k.required ? "Required by the JD" : undefined}>
+            <span
+              key={k.keyword}
+              className="rounded-sm px-1.5 py-0.5 text-[13px]"
+              style={{ background: "var(--hl-soft)" }}
+              title={[k.required ? "Required by the JD" : "", locations?.[k.keyword]?.length ? `Found in: ${locations[k.keyword].join(", ")}` : ""].filter(Boolean).join(" · ") || undefined}
+            >
               {k.keyword}
               {k.required && <span className="ml-0.5 text-amber">*</span>}
+              {locations?.[k.keyword]?.length ? <span className="ml-1 text-[11px] text-muted">{locations[k.keyword].map((l) => LOC_SHORT[l] ?? l).join("·")}</span> : null}
             </span>
           ))}
           {!match.matched.length && <span className="text-[13px] text-muted">None yet.</span>}
@@ -68,7 +76,7 @@ function KeywordChips({ match, re }: { match: MatchResult; re?: boolean }) {
           {!match.missing.length && <span className="text-[13px] text-muted">Nothing missing — great coverage.</span>}
         </div>
       </div>
-      {re !== false && <p className="text-xs text-muted">* asked for in the requirements section of the JD.</p>}
+      {re !== false && <p className="text-xs text-muted">* required by the job post{locations ? " · small labels show where each keyword appears" : ""}.</p>}
     </div>
   );
 }
@@ -130,12 +138,12 @@ export function LayoutPanel({ checks, title = "How an ATS reads your file" }: { 
   );
 }
 
-function ReadBackPanel({ getResume }: { getResume: () => TailoredResume }) {
+function ReadBackPanel({ getResume, exportOpts }: { getResume: () => TailoredResume; exportOpts?: ExportOptions }) {
   const [res, setRes] = useState<ExportCheck | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     let alive = true;
-    exportCheck(getResume())
+    exportCheck(getResume(), exportOpts)
       .then((r) => alive && setRes(r))
       .catch((e: Error) => alive && setError(e.message));
     return () => {
@@ -158,7 +166,7 @@ function ReadBackPanel({ getResume }: { getResume: () => TailoredResume }) {
           {ok ? <ShieldCheck className="mt-0.5 size-5 shrink-0 text-green" aria-hidden /> : <AlertTriangle className="mt-0.5 size-5 shrink-0 text-amber" aria-hidden />}
           <div className="space-y-1 text-[13.5px] text-ink-2">
             <p>
-              We rendered your PDF and ran it through the same parser used for uploads:{" "}
+              Your PDF, parsed back:{" "}
               <b className="text-ink">
                 {res.bullets_found}/{res.bullets_total} bullets
               </b>
@@ -167,7 +175,7 @@ function ReadBackPanel({ getResume }: { getResume: () => TailoredResume }) {
             </p>
             <p>
               {res.pages} page{res.pages > 1 ? "s" : ""}
-              {res.pages > 2 ? " — consider trimming; most recruiters prefer 1–2 pages." : " · single column · real text, no images."}
+              {res.pages > 2 ? " — trim to 1–2 pages." : " · single column · selectable text."}
             </p>
           </div>
         </div>
@@ -270,13 +278,18 @@ export function InsightsView({
   busy,
   layout,
   getResume,
-}: { result: TailorResult; onRegenerate?: () => void; busy?: boolean; layout?: LayoutCheck[]; getResume?: () => TailoredResume } & ConfirmProps) {
+  exportOpts,
+}: { result: TailorResult; onRegenerate?: () => void; busy?: boolean; layout?: LayoutCheck[]; getResume?: () => TailoredResume; exportOpts?: ExportOptions } & ConfirmProps) {
   const { scores, resume: r, guardrails: g, meta } = result;
+  const cur = scores.match.after ?? scores.match.before;
   const [which, setWhich] = useState<"after" | "before">("after");
   const match = (which === "after" ? scores.match.after : scores.match.before) ?? scores.match.before;
   return (
     <div className="mx-auto w-full max-w-[800px] space-y-4">
-      <Panel title="How well it fits">
+      <AtAGlance match={cur} before={scores.match.before} stats={result.stats} shown={scores.evidence?.shown.length} />
+      <TopFixes ats={scores.ats.after ?? scores.ats.before} missingRequired={cur.missing.filter((k) => k.required).map((k) => k.keyword)} />
+
+      <Panel title="Scores">
         <div className="grid gap-6 sm:grid-cols-2">
           <ScoreRuler
             label="Keyword match"
@@ -284,14 +297,12 @@ export function InsightsView({
             after={scores.match.after?.score}
             caption={
               scores.match.after?.note ??
-              `${(scores.match.after ?? scores.match.before).required_matched ?? 0} of ${scores.match.before.required_total ?? 0} must-haves covered · ${scores.match.before.total} JD keywords tracked, weighted by importance.`
+              `${scores.match.before.total} job keywords, weighted by importance.`
             }
           />
-          <ScoreRuler label="ATS readiness" before={scores.ats.before.score} after={scores.ats.after?.score} caption={`${(scores.ats.after ?? scores.ats.before).grade}: structure, contact details, bullets and keywords.`} />
+          <ScoreRuler label="ATS readiness" before={scores.ats.before.score} after={scores.ats.after?.score} caption={`${(scores.ats.after ?? scores.ats.before).grade} · structure, contact, bullets, keywords.`} />
         </div>
-        <p className="mt-4 text-[13px] text-muted">
-          Scores are computed deterministically on the server — not by the AI — so before and after are measured the same way. Skills you don&apos;t have are never added, so the remaining gap is honest.
-        </p>
+        <p className="mt-4 text-[13px] text-muted">Computed by fixed rules, not the AI, so before and after are measured the same way.</p>
       </Panel>
 
       <Panel
@@ -308,14 +319,12 @@ export function InsightsView({
           )
         }
       >
-        <KeywordChips match={match} />
+        <KeywordChips match={match} locations={which === "after" ? scores.locations : undefined} />
       </Panel>
 
       {scores.evidence && (scores.evidence.listed_only.length > 0 || scores.evidence.shown.length > 0) && (
         <Panel title="Shown, not just listed">
-          <p className="mb-3 text-[13.5px] text-ink-2">
-            Recruiters trust a skill when a bullet shows you using it. These job keywords appear in your resume — the dashed ones only in the Skills list.
-          </p>
+          <p className="mb-3 text-[13.5px] text-ink-2">Highlighted: used in a bullet. Dashed: only in the Skills list.</p>
           <div className="flex flex-wrap gap-1.5">
             {scores.evidence.shown.map((k) => (
               <span key={k} className="rounded-sm px-1.5 py-0.5 text-[13px]" style={{ background: "var(--hl-soft)" }}>
@@ -338,9 +347,7 @@ export function InsightsView({
 
       {r.missing_keywords.length > 0 && (
         <Panel title="Worth adding — if it's true">
-          <p className="-mt-1 mb-3 text-[13.5px] text-ink-2">
-            Tailor never adds skills on its own. If you genuinely have one of these, mark it — the next version will include it, using your note for context.
-          </p>
+          <p className="-mt-1 mb-3 text-[13.5px] text-ink-2">Never added automatically. Mark the ones you really have and the next version can use them.</p>
           <ul className="space-y-3">
             {r.missing_keywords.map((m) => (
               <MissingItem key={m.keyword} m={m} confirmed={confirmed?.find((c) => c.keyword.toLowerCase() === m.keyword.toLowerCase())} onConfirm={onConfirm} onUnconfirm={onUnconfirm} />
@@ -363,7 +370,7 @@ export function InsightsView({
         <AtsChecks before={scores.ats.before} after={scores.ats.after} />
       </Panel>
 
-      {getResume && <ReadBackPanel getResume={getResume} />}
+      {getResume && <ReadBackPanel getResume={getResume} exportOpts={exportOpts} />}
 
       {layout && layout.some((c) => c.status !== "pass") && <LayoutPanel checks={layout} title="Your original file's layout" />}
 
@@ -373,7 +380,7 @@ export function InsightsView({
         <div className="flex gap-3">
           <ShieldCheck className="mt-0.5 size-5 shrink-0 text-green" aria-hidden />
           <div className="space-y-1 text-[13.5px] text-ink-2">
-            <p>Every rewrite was checked against your original resume after the AI finished.</p>
+            <p>Every line was checked against your resume{g.supporting_used ? " and extra material" : ""} after the AI finished.</p>
             <p>
               {g.removed_skills.length
                 ? `Removed ${g.removed_skills.length} skill${g.removed_skills.length > 1 ? "s" : ""} the AI added that your resume doesn't show: ${g.removed_skills.join(", ")}.`
@@ -395,6 +402,64 @@ export function InsightsView({
         Generated with {meta.provider} · {meta.model} in {(meta.duration_ms / 1000).toFixed(1)}s
       </p>
     </div>
+  );
+}
+
+function Stat({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone?: "good" | "warn" }) {
+  return (
+    <div className="min-w-0 rounded-lg border border-rule-soft bg-paper px-3 py-2.5">
+      <div className="text-[12px] text-muted">{label}</div>
+      <div className={cx("text-xl font-semibold tabular-nums tracking-tight", tone === "good" && "text-green", tone === "warn" && "text-amber")}>{value}</div>
+      {sub && <div className="truncate text-[12px] text-muted">{sub}</div>}
+    </div>
+  );
+}
+
+function AtAGlance({ match, before, stats, shown }: { match: MatchResult; before: MatchResult; stats?: EditStats; shown?: number }) {
+  const req = `${match.required_matched ?? 0}/${match.required_total ?? 0}`;
+  const opt = match.optional_total != null ? `${match.optional_matched ?? 0}/${match.optional_total}` : `${match.matched.length}/${match.total}`;
+  const gained = (match.required_matched ?? 0) - (before.required_matched ?? 0);
+  return (
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+      <Stat label="Must-haves" value={req} sub={gained > 0 ? `+${gained} vs original` : "covered"} tone={match.required_total && match.required_matched === match.required_total ? "good" : undefined} />
+      <Stat label={match.optional_total != null ? "Nice-to-haves" : "Keywords"} value={opt} sub="covered" />
+      <Stat label="Shown in bullets" value={String(shown ?? "—")} sub="keywords with evidence" />
+      {stats ? (
+        <Stat label="Lines edited" value={`${stats.light + stats.rewritten + stats.new}/${stats.total}`} sub={`${stats.kept} kept · ${stats.light} light · ${stats.rewritten} rewritten`} />
+      ) : (
+        <Stat label="Keyword match" value={String(match.score ?? "—")} />
+      )}
+    </div>
+  );
+}
+
+function TopFixes({ ats, missingRequired }: { ats: AtsResult; missingRequired: string[] }) {
+  const fixes = ats.checks
+    .filter((c) => c.tip && c.status !== "pass")
+    .sort((a, b) => b.max - b.score - (a.max - a.score))
+    .slice(0, 3)
+    .map((c) => ({ id: c.id, text: c.tip!, gain: Math.round(c.max - c.score) }));
+  if (!fixes.length && !missingRequired.length) return null;
+  return (
+    <Panel title="Next best fixes">
+      <ol className="space-y-1.5 text-[13.5px]">
+        {missingRequired.length > 0 && (
+          <li className="flex gap-2">
+            <span className="font-semibold text-red">1.</span>
+            <span>
+              Missing must-have{missingRequired.length > 1 ? "s" : ""}: <b>{missingRequired.slice(0, 5).join(", ")}</b>. If you have it, mark it below or ask the AI where to add it.
+            </span>
+          </li>
+        )}
+        {fixes.map((f, i) => (
+          <li key={f.id} className="flex gap-2">
+            <span className="font-semibold text-muted">{i + (missingRequired.length ? 2 : 1)}.</span>
+            <span className="flex-1">{f.text}</span>
+            {f.gain > 0 && <span className="shrink-0 text-[12px] tabular-nums text-muted">up to +{f.gain} ATS</span>}
+          </li>
+        ))}
+      </ol>
+    </Panel>
   );
 }
 

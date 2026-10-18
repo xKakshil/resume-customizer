@@ -57,7 +57,7 @@ def test_guardrail_flags_new_numbers_and_tech():
 def test_locked_sections_are_restored_verbatim_and_in_order():
     r = make()
     apply_guardrails(r, req(sections=["skills"]), resume_text(), [])
-    assert r.summary.tailored == r.summary.original
+    assert r.summary.tailored == ""  # summary is opt-in: not selected → not in the resume
     bullets = r.experience[0].bullets
     assert all(b.tailored == b.original and not b.flags for b in bullets)
     # Original resume order: "Worked on…" comes before "Wrote unit tests…"
@@ -157,5 +157,36 @@ def test_honest_headline_is_kept():
 def test_summary_with_unverified_skill_is_flagged():
     r = make()
     r.summary.tailored = "Backend engineer running Kubernetes clusters in production for payments."
-    apply_guardrails(r, req(), resume_text(), [])
+    apply_guardrails(r, req(sections=["summary", "experience"]), resume_text(), [])
     assert any(f.startswith("unverified_skill") and "kubernetes" in f for f in r.summary.flags)
+
+
+def test_summary_is_opt_in():
+    r = make()
+    apply_guardrails(r, req(), resume_text(), [])  # default sections exclude summary
+    assert r.summary.tailored == "" and r.summary.original
+    r2 = make()
+    apply_guardrails(r2, req(sections=["summary", "skills"]), resume_text(), [])
+    assert r2.summary.tailored == "Backend engineer…"
+
+
+def test_supporting_documents_count_as_evidence_and_reach_prompt():
+    from app.services.prompts import build_tailor_messages
+    r = make()  # skills include Kubernetes, not in the resume
+    rq = req(supporting_documents=[{"label": "Project notes", "text": "QuickLink was deployed on a Kubernetes cluster (k3s)."}])
+    report = apply_guardrails(r, rq, resume_text(), [])
+    assert "Kubernetes" in r.skills.groups[0].items and report["supporting_used"] == ["Project notes"]
+    msgs = build_tailor_messages(SAMPLE_JD, resume_text(), ["skills"], "balanced", "", [], [d.model_dump() for d in rq.supporting_documents])
+    user = msgs[1]["content"]
+    assert "<supporting_documents>" in user and 'label="Project notes"' in user and "SECONDARY" in user
+    assert "does NOT want a summary" in msgs[0]["content"]
+
+
+def test_edit_stats_and_keyword_locations():
+    from app.services.tailor import edit_stats, keyword_locations
+    r = make()
+    r.experience[0].bullets[0].tailored = r.experience[0].bullets[0].original  # kept
+    stats = edit_stats(r)
+    assert stats["kept"] == 1 and stats["total"] == 2
+    loc = keyword_locations(r, {"matched": [{"keyword": "React"}, {"keyword": "Python"}]}, False)
+    assert loc["React"] == ["experience"] and loc["Python"] == ["skills"]

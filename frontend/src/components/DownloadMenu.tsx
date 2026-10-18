@@ -2,12 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, Copy, Download, ExternalLink, FileDown, FileText, Printer } from "lucide-react";
-import { downloadExport, openInOverleaf, type ExportFormat } from "@/lib/api";
-import type { TailoredResume } from "@/lib/types";
+import { downloadExport, openInOverleaf, type ExportFormat, type ExportOptions } from "@/lib/api";
+import type { ParsedResume, TailoredResume } from "@/lib/types";
 import { resumeToText } from "@/lib/resume";
 import { Button, Spinner, copyText, useToast } from "./ui";
 
-export function DownloadMenu({ getResume }: { getResume: () => TailoredResume }) {
+export function DownloadMenu({ getResume, opts, original }: { getResume: () => TailoredResume; opts: ExportOptions; original?: ParsedResume | null }) {
   const toast = useToast();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<ExportFormat | null>(null);
@@ -28,8 +28,8 @@ export function DownloadMenu({ getResume }: { getResume: () => TailoredResume })
   const dl = async (format: ExportFormat) => {
     setBusy(format);
     try {
-      await downloadExport({ format, resume: getResume() });
-      toast("success", `Downloaded ${format.toUpperCase()}.`);
+      const res = await downloadExport({ format, resume: getResume(), ...opts });
+      toast(res.note ? "info" : "success", res.note || (res.mode === "original-file" ? `Downloaded ${format.toUpperCase()} in your original template.` : `Downloaded ${format.toUpperCase()}.`));
       setOpen(false);
     } catch (e) {
       toast("error", (e as Error).message);
@@ -38,10 +38,11 @@ export function DownloadMenu({ getResume }: { getResume: () => TailoredResume })
     }
   };
 
+  const keep = opts.layout?.template === "original" && opts.source_id;
   const items: { format: ExportFormat; label: string; hint: string }[] = [
-    { format: "pdf", label: "PDF", hint: "Best for applying" },
-    { format: "docx", label: "Word (.docx)", hint: "Edit further in Word or Google Docs" },
-    { format: "tex", label: "LaTeX (.tex)", hint: "Keep editing the source yourself" },
+    { format: "pdf", label: "PDF", hint: keep && original?.file_type === "tex" ? "Compiled from your own .tex" : "Best for applying" },
+    { format: "docx", label: "Word (.docx)", hint: keep && original?.file_type === "docx" ? "Your original file, text updated" : "Edit further in Word or Google Docs" },
+    { format: "tex", label: "LaTeX (.tex)", hint: keep && original?.file_type === "tex" ? "Your original source, text updated" : "Keep editing the source yourself" },
     { format: "md", label: "Markdown", hint: "For GitHub or Notion" },
     { format: "txt", label: "Plain text", hint: "For pasting into job portals" },
   ];
@@ -72,7 +73,7 @@ export function DownloadMenu({ getResume }: { getResume: () => TailoredResume })
             onClick={async () => {
               setOpen(false);
               try {
-                await openInOverleaf(getResume());
+                await openInOverleaf(getResume(), opts);
               } catch (e) {
                 toast("error", (e as Error).message);
               }

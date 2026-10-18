@@ -6,7 +6,7 @@ from collections.abc import Iterator
 from datetime import datetime, timezone
 from functools import lru_cache
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, create_engine
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, LargeBinary, String, Text, create_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship, sessionmaker
 
 from app.config import get_settings
@@ -47,6 +47,18 @@ class Run(Base):
     match_after: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
     user: Mapped[User] = relationship(back_populates="runs")
+
+
+class Upload(Base):
+    """The user's original resume file, kept briefly so downloads can reuse its
+    exact template (DOCX/LaTeX are edited in place). Deleted after UPLOAD_TTL_HOURS."""
+
+    __tablename__ = "uploads"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    file_type: Mapped[str] = mapped_column(String(10))
+    filename: Mapped[str] = mapped_column(String(255), default="")
+    data: Mapped[bytes] = mapped_column(LargeBinary)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
 
 
 @lru_cache

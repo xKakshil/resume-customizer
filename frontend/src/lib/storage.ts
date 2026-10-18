@@ -27,4 +27,7 @@ export const KEYS = {
   options: "tailor.options",
   auth: "tailor.auth",
   confirmed: "tailor.confirmed",
+  layout: "tailor.layout",
+  docs: "tailor.docs",
+  chat: "tailor.chat",
 } as const;

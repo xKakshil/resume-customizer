@@ -34,9 +34,9 @@ Paste a job description, upload your resume (PDF or DOCX), and get an **honest, 
 | Requirement | Implementation |
 |---|---|
 | JD input with validation | Paste or **import from a job-posting link**. Textarea with live character count; empty / < 100 chars / > 20,000 chars / "not actually a JD" are all rejected with specific messages (client **and** server). |
-| Resume upload (PDF + DOCX) | Drag-and-drop or picker, upload progress bar, shows **file name, size, type, pages and word count**, plus parse warnings. Text is extracted on the backend with `pdfplumber` / `python-docx`. |
-| LLM customization | Rewrites the summary, groups and orders skills by JD relevance, reorders and rephrases every experience/project bullet with JD keywords, and lists missing keywords with honest suggestions. |
-| Output display | The tailored resume is rendered as a clean "sheet of paper", with JD keywords highlighted. |
+| Resume upload (PDF + DOCX + LaTeX) | Drag-and-drop or picker, upload progress bar, shows **file name, size, type, pages, word count and the detected template** (font, size, paper, margins), plus parse warnings. Text is extracted on the backend with `pdfplumber` / `python-docx` / a LaTeX-to-text reader. |
+| LLM customization | Makes the **smallest edits that help**: orders skills by JD relevance, reorders bullets and tightens only the ones that gain from it (strong bullets stay verbatim), and lists missing keywords with honest suggestions. A summary is **opt-in** (off by default). |
+| Output display | The tailored resume as a "sheet of paper" with JD keywords highlighted, plus a **PDF view** that renders the exact file you'll download (pdf.js, works on phones). |
 | Download | **PDF**, **Word (.docx)**, **LaTeX (.tex)** with one-click **Open in Overleaf**, **Markdown**, **plain text**, copy to clipboard, and print. Exports are ATS-friendly (single column, real text, real bullet characters, no f-ligatures in LaTeX). |
 | Error handling | Invalid/oversized/corrupt/encrypted/scanned files, empty inputs, LLM rate limits, timeouts, bad JSON, provider outages — every failure has a clear, actionable message. |
 
@@ -45,9 +45,9 @@ Paste a job description, upload your resume (PDF or DOCX), and get an **honest, 
 | Bonus | Implementation |
 |---|---|
 | ✅ **Match score** | Deterministic weighted keyword match (0–100) shown **before and after** tailoring, with the exact matched/missing keywords, **must-have coverage** ("7 of 9 must-haves"), and which skills are **shown in a bullet vs only listed** in Skills. |
-| ✅ **Diff view** | "Changes" tab: word-level marked-up diff (or side-by-side) for the summary and every bullet, "moved up" indicators, per-section rationale — and **accept / revert each line**. Downloads respect your choices. |
-| ✅ **Multiple versions** | Generate up to 6 versions with different emphasis (Balanced, Technical, Impact, Leadership, Concise) and **compare any two** as a diff or side by side. Versions persist across page reloads. |
-| ✅ **Section-wise customization** | Choose which of Summary / Skills / Experience / Projects to rewrite. Unselected sections are restored **verbatim and in original order** by the server, even if the model ignores the instruction. |
+| ✅ **Diff view** | "Changes" tab: **side-by-side** before/after with word-level marks (or inline) for the summary and every bullet, "moved up" indicators, per-section rationale — and **accept / revert each line**. Downloads respect your choices. |
+| ✅ **Multiple versions** | Generate up to 6 versions with different emphasis (Balanced, Technical, Impact, Leadership, Concise) and **compare any two — or any version against your original** — line by line, side by side, or as full pages. Versions persist across page reloads. |
+| ✅ **Section-wise customization** | Choose which of Skills / Experience / Projects to edit, and whether to include a summary. Unselected sections are restored **verbatim and in original order** by the server, even if the model ignores the instruction. |
 | ✅ **Cover letter generator** | Streams a cover letter with selectable voice and length, optional hiring manager and company; editable, downloadable as PDF/DOCX/TXT. |
 | ✅ **ATS score** | 100-point checklist across 9 checks (contact info, standard headings, keyword coverage, action verbs, quantified impact, bullet length, length, writing style, parseability), each with a concrete tip. Before and after. |
 | ✅ **Authentication** | Email + password accounts (scrypt hashing, JWT). Signed-in users get every result saved to **History**, can reopen or delete it, and cover letters are attached to the saved run. |
@@ -56,7 +56,11 @@ Paste a job description, upload your resume (PDF or DOCX), and get an **honest, 
 ### Beyond the brief
 
 - **Truthfulness guardrails** — after the model responds, the server strips any skill the resume doesn't evidence (moving it to "missing keywords"), removes dates or locations that aren't in the original, and flags any rewritten bullet that introduces a number or technology not in the original ("Check: 90% isn't in your original resume"). The model *cannot* silently inflate a resume.
-- **Interview prep** — a tab that predicts the questions this role will ask (technical, deep-dives on your own projects, behavioural, role fit), each with what the interviewer is checking and answer points drawn only from your resume, plus gaps to prepare and questions to ask back. Copy or download as Markdown.
+- **Ask AI (chat editor)** — ask for any change in plain words ("shorten the Acme bullets", "add a 2-line summary", "0.5 inch margins", "serif font"). The AI **proposes**; you see a before/after diff, the score change and any truthfulness flags, then **Apply** or **Discard** (with Undo). Proposals pass the same guardrails as tailoring.
+- **Keeps your template** — *Match original* is the default after upload. **Word and LaTeX uploads are edited in place**: only the text of matched bullets, skills lines and (optionally) the summary changes, so fonts, spacing, tables and macros are untouched; LaTeX previews are compiled from your own source in a sandbox (Tectonic/pdfLaTeX, no file or shell access). **PDF uploads** have their fonts, sizes, margins, heading style, rules and colours detected and recreated. Switch to Classic / Compact / Serif any time.
+- **Page setup** — paper size, margins (top/bottom/left/right, inches), font family and sizes, line spacing, heading case and rule, header alignment, accent colour, summary on/off and fit-to-one-page. Applied to the PDF view and every download; remembered between visits.
+- **Extra material (optional)** — add another resume, project write-ups or role details (file or pasted text). They're used only as secondary evidence to enrich existing bullets and the summary — never copied in as new experience, and the guardrails accept facts from them.
+- **Precise feedback** — must-haves x/y, nice-to-haves x/y, which section each keyword appears in, how many lines were kept / lightly edited / rewritten, and the next best fixes ranked by score impact.
 - **ATS layout check of your actual file** — inspects the uploaded PDF's geometry or the DOCX's XML for what really breaks ATS parsing: two-column layouts, tables, text boxes, images, contact details in headers/footers and garbled icon-font glyphs, each with a fix.
 - **Download read-back** — the tailored PDF is rendered and parsed back by the same parser used for uploads, proving every bullet, section and contact detail survives ("10/10 bullets, 5/5 sections recovered").
 - **One-page fit** — if the PDF spills onto an extra page, it is re-rendered with a slightly tighter layout and the tighter version is kept when it saves a page.
@@ -254,20 +258,21 @@ docker run -p 8000:8000 --env-file .env resume-customizer-api
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/api/health` | Status, configured LLM providers and input limits. |
-| `POST` | `/api/resume/parse` | Multipart `file` (PDF/DOCX ≤ 5 MB) → text, metadata, detected sections, links, warnings. |
+| `POST` | `/api/resume/parse` | Multipart `file` (PDF/DOCX/TeX ≤ 5 MB) → text, metadata, sections, links, warnings, detected `style` and a `source_id` for template matching. |
+| `POST` | `/api/documents/parse` | Multipart `file` (PDF/DOCX/TeX/TXT/MD) → text of a supporting document. |
+| `POST` | `/api/chat` | `{message, history, resume, job_description, resume_text, layout, …}` → `{reply, changes, proposal: {result, layout, diff} \| null}`. Nothing is applied server-side. |
 | `POST` | `/api/score` | `{job_description, resume_text}` → match + ATS scores (no LLM). |
 | `POST` | `/api/jd/fetch` | `{url}` → job description imported from a job-posting page (title, company, cleaned text). |
 | `POST` | `/api/jd/clean` | `{job_description}` → JD with job-board boilerplate removed + count. |
 | `POST` | `/api/tailor` | Tailor and return JSON in one response. |
 | `POST` | `/api/tailor/stream` | Same, as SSE: `status` → `delta`… → `result` (or `error`). |
 | `POST` | `/api/cover-letter` · `/stream` | Generate a cover letter (JSON or SSE). |
-| `POST` | `/api/interview-prep` | `{job_description, resume_text, count}` → role fit, likely questions with answer points, gaps, questions to ask. |
 | `POST` | `/api/export/check` | `{resume}` → render the PDF and parse it back: pages, sections/bullets/contact recovered. |
-| `POST` | `/api/export` | `{format: pdf\|docx\|tex\|md\|txt, resume?, cover_letter?}` → file download. |
+| `POST` | `/api/export` | `{format: pdf\|docx\|tex\|md\|txt, resume?, cover_letter?, layout?, source_id?, inline?}` → file (headers `X-Render-Mode`: `original-file` \| `style-match` \| `template`, and `X-Render-Note`). |
 | `POST` | `/api/auth/register` · `/login` | `{email, password, name?}` → `{token, user}`. |
 | `GET` | `/api/auth/me` | Current user. |
 | `GET` · `DELETE` | `/api/history` · `/api/history/{id}` | List, open or delete saved runs. |
-| `PUT` | `/api/history/{id}/cover-letter` · `/interview-prep` | Attach a cover letter or interview prep to a saved run. |
+| `PUT` | `/api/history/{id}/cover-letter` | Attach a cover letter to a saved run. |
 
 Tailor request body:
 
@@ -275,10 +280,11 @@ Tailor request body:
 {
   "job_description": "…",
   "resume_text": "…",
-  "sections": ["summary", "skills", "experience", "projects"],
+  "sections": ["skills", "experience", "projects"],
   "tone": "balanced | technical | impact | leadership | concise",
   "extra_instructions": "optional, ≤ 500 chars",
   "confirmed_skills": [{"keyword": "Kubernetes", "context": "deployed QuickLink on k3s"}],
+  "supporting_documents": [{"label": "QuickLink notes", "text": "…"}],
   "resume_filename": "optional"
 }
 ```
@@ -323,8 +329,8 @@ Before finalising, ten open-source projects with the same goal were reviewed. Wh
 | **jd-to-resume** (React + FastAPI) | Letting users add context their resume lacks → our *I have this* confirmations. | Feeding the model an AI-generated profile of *inferred* skills — exactly the fabrication the guardrails exist to stop. Only the user can confirm a skill. |
 | **ResumeGPT** (LangChain) | Its critic pass that hunts for "lazy copy-paste from the job posting" → our deterministic copied-from-JD flag; user verification before finalising → accept/revert + confirmations. | Five chain-of-thought LLM calls per resume (slow and costly); one structured call plus deterministic checks does the same job. |
 | **TailorCV** (Ollama CLI) | Importing the JD from a URL; local Ollama provider for privacy. | A second "coherence" LLM pass — doubles latency; guardrails and scoring cover consistency deterministically. |
-| **Resume-Matcher** (Next.js + FastAPI, 27k★) | It independently follows the same principles as this app — deterministic, LLM-free scoring and no invented experience. Adopted: its ATS *parse check* idea (layout analysis of the real file + rendering the output and reading it back), the bullet *grounding* check, interview prep, and one-page fit. | MCP server, template designer and Playwright/Chromium PDF pipeline — a large surface area beyond this brief. |
-| **Resume-Analyzer-AI** (Streamlit + RAG) | Interview questions by category (HR/technical/coding) — merged into Interview prep. | Chat-with-resume RAG on FAISS + Hugging Face embeddings (heavy, off-task); an LLM-written "ATS Score: x/100". |
+| **Resume-Matcher** (Next.js + FastAPI, 27k★) | It independently follows the same principles as this app — deterministic, LLM-free scoring and no invented experience. Adopted: its ATS *parse check* idea (layout analysis of the real file + rendering the output and reading it back), the bullet *grounding* check, and one-page fit. | MCP server, template designer and Playwright/Chromium PDF pipeline — a large surface area beyond this brief. |
+| **Resume-Analyzer-AI** (Streamlit + RAG) | Chat with your resume — reworked as a propose-and-approve chat editor. | Chat-with-resume RAG on FAISS + Hugging Face embeddings (heavy, off-task); an LLM-written "ATS Score: x/100". |
 | **resume-tailor-agent** (LangChain + Streamlit) | — tailoring, cover letter and gap analysis were already covered. | LangChain/Streamlit stack. |
 | **Tailored-Resume-Generator** (Next.js + FastAPI) | — (LaTeX output and keyword ideas were already covered). | A TF-IDF cosine "ATS score" multiplied by 1.8 — an inflated number; plus spaCy/scikit-learn dependencies for little gain. |
 
@@ -362,7 +368,8 @@ The backend suite covers parsing edge cases (generated PDFs/DOCX, encrypted, sca
 - **Free hosting:** Render's free tier sleeps after inactivity (the UI explains the ~30–60 s wake-up). With the default SQLite, accounts/history reset on redeploy; set `DATABASE_URL` to Postgres to persist them.
 - **Rate limiting is in-memory** (per instance). Use Redis if you scale horizontally.
 - **Auth is intentionally basic:** JWT in `localStorage`, no email verification or password reset. Fine for a demo; production would use httpOnly cookies and a proper identity provider.
-- **Original formatting isn't preserved.** Output uses one clean ATS-friendly template rather than reproducing the uploaded design.
+- **PDF originals are recreated, not edited.** A PDF can't be edited reliably, so its style is detected and recreated (fonts are mapped to sans/serif). Word and LaTeX originals are edited in place. The PDF preview of a Word original is a close style match — the Word download is the exact file.
+- **Uploaded originals are kept for 48 hours** (so downloads can reuse the template), then deleted automatically. LaTeX compiles are sandboxed; a file that needs disallowed features (`\\input` of other files, shell escape…) falls back to a style match.
 - **Streaming JSON** means the live preview occasionally shows a partially written field for a moment before it completes — the final result is always validated server-side.
 
 ---
@@ -371,7 +378,9 @@ The backend suite covers parsing edge cases (generated PDFs/DOCX, encrypted, sca
 
 | | |
 |---|---|
-| **Live streaming** ![](docs/screenshots/streaming.png) | **Line-by-line changes, accept/revert** ![](docs/screenshots/changes.png) |
-| **Match & ATS insights** ![](docs/screenshots/insights.png) | **Compare versions** ![](docs/screenshots/compare.png) |
+| **Ask AI: propose → apply** ![](docs/screenshots/chat.png) | **PDF view in your own LaTeX template** ![](docs/screenshots/pdf-view.png) |
+| **Page setup & template matching** ![](docs/screenshots/page-setup.png) | **Side-by-side changes, accept/revert** ![](docs/screenshots/changes.png) |
+| **Live streaming** ![](docs/screenshots/streaming.png) | **Compare versions (or vs original)** ![](docs/screenshots/compare.png) |
+| **Match & ATS insights** ![](docs/screenshots/insights.png) | **Empty state** ![](docs/screenshots/empty.png) |
 | **Cover letter** ![](docs/screenshots/cover-letter.png) | **Dark mode** ![](docs/screenshots/dark.png) |
-| **Empty state** ![](docs/screenshots/empty.png) | **Mobile** ![](docs/screenshots/mobile.png) |
+| **Mobile** ![](docs/screenshots/mobile.png) | |

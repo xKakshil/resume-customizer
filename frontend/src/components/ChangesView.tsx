@@ -28,6 +28,47 @@ export function DiffText({ before, after }: { before: string; after: string }) {
   );
 }
 
+/** Two aligned columns: removals marked on the left, insertions on the right. */
+export function SideBySide({ before, after, beforeLabel = "Before", afterLabel = "After" }: { before: string; after: string; beforeLabel?: string; afterLabel?: string }) {
+  const parts = useMemo(() => diffWords(before || "", after || ""), [before, after]);
+  return (
+    <div className="grid gap-2 sm:grid-cols-2">
+      <p className="paper-text rounded-md bg-desk/60 p-2 text-ink-2">
+        <span className="mb-0.5 block font-sans text-[11px] text-muted">{beforeLabel}</span>
+        {before ? (
+          parts.map((p, i) =>
+            p.added ? null : p.removed ? (
+              <del key={i} className="mark-del">
+                {p.value}
+              </del>
+            ) : (
+              <span key={i}>{p.value}</span>
+            ),
+          )
+        ) : (
+          <em className="text-muted">(none)</em>
+        )}
+      </p>
+      <p className="paper-text rounded-md bg-blue-wash/40 p-2">
+        <span className="mb-0.5 block font-sans text-[11px] text-muted">{afterLabel}</span>
+        {after ? (
+          parts.map((p, i) =>
+            p.removed ? null : p.added ? (
+              <ins key={i} className="mark-ins">
+                {p.value}
+              </ins>
+            ) : (
+              <span key={i}>{p.value}</span>
+            ),
+          )
+        ) : (
+          <em className="text-muted">(removed)</em>
+        )}
+      </p>
+    </div>
+  );
+}
+
 type Mode = "marked" | "side";
 
 function Decision({ rejected, onToggle, edited }: { rejected: boolean; onToggle: () => void; edited: boolean }) {
@@ -94,19 +135,10 @@ function Unit({
         <span className="flex-1" />
         {(changed || edited) && <Decision rejected={rejected} onToggle={onToggle} edited={edited} />}
       </div>
-      {mode === "marked" || !changed ? (
+      {mode === "marked" || !(changed || edited) ? (
         <p className="paper-text">{changed || edited ? <DiffText before={original} after={current} /> : current}</p>
       ) : (
-        <div className="grid gap-2 sm:grid-cols-2">
-          <p className="paper-text rounded-md bg-desk/60 p-2 text-ink-2">
-            <span className="mb-0.5 block font-sans text-[11px] text-muted">Before</span>
-            {original || <em className="text-muted">(none)</em>}
-          </p>
-          <p className="paper-text rounded-md bg-blue-wash/50 p-2">
-            <span className="mb-0.5 block font-sans text-[11px] text-muted">After</span>
-            {current}
-          </p>
-        </div>
+        <SideBySide before={original} after={current} beforeLabel="Your original" afterLabel={rejected ? "Kept original" : edited ? "Your edit" : "Tailored"} />
       )}
     </div>
   );
@@ -123,10 +155,11 @@ export function ChangesView({
   onToggle: (path: string) => void;
   onRevertAll: (rejectAll: boolean) => void;
 }) {
-  const [mode, setMode] = useState<Mode>("marked");
+  const [mode, setMode] = useState<Mode>("side");
   const [onlyChanged, setOnlyChanged] = useState(true);
   const r = version.result.resume;
   const { changed, total } = changeCount(r);
+  const stats = version.result.stats;
   const low = resumeText.toLowerCase();
 
   const originalRank = (bullets: Bullet[]) => {
@@ -179,12 +212,12 @@ export function ChangesView({
   const anyRejected = Object.values(version.rejected).some(Boolean);
 
   return (
-    <div className="paper mx-auto w-full max-w-[800px] px-5 py-6 sm:px-10 sm:py-8">
+    <div className="paper mx-auto w-full max-w-[1000px] px-5 py-6 sm:px-8 sm:py-8">
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <div className="mr-auto">
           <h2 className="text-lg font-semibold">What changed</h2>
           <p className="text-sm text-muted">
-            {changed} of {total} lines rewritten. <ins className="mark-ins">Blue</ins> is new wording, <del className="mark-del">red</del> was removed. Accept or revert each line — downloads use your choices.
+            {changed} of {total} lines changed{stats ? ` (${stats.light} light touch, ${stats.rewritten} rewritten, ${stats.kept} kept as-is)` : ""}. Accept or revert each — downloads use your choices.
           </p>
         </div>
       </div>
@@ -192,7 +225,7 @@ export function ChangesView({
         <div className="flex rounded-lg bg-desk-2 p-1" role="radiogroup" aria-label="Diff layout">
           {(["marked", "side"] as Mode[]).map((m) => (
             <button key={m} role="radio" aria-checked={mode === m} onClick={() => setMode(m)} className={cx("rounded-md px-2.5 py-1 text-[13px]", mode === m ? "bg-paper font-medium shadow-sm" : "text-muted")}>
-              {m === "marked" ? "Marked up" : "Side by side"}
+              {m === "marked" ? "Inline" : "Side by side"}
             </button>
           ))}
         </div>
@@ -206,7 +239,7 @@ export function ChangesView({
         </button>
       </div>
 
-      {(r.summary.original || r.summary.tailored) && (
+      {(r.summary.original || r.summary.tailored) && version.result.meta.sections.includes("summary") && (
         <section className="mt-3">
           <h3 className="font-semibold">Summary</h3>
           {r.summary.rationale && <p className="mt-0.5 text-[13px] text-muted">{r.summary.rationale}</p>}

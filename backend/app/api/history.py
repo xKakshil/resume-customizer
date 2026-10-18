@@ -53,18 +53,6 @@ def attach_cover_letter(run_id: int, body: CoverLetterAttach, user: User = Depen
     return {"ok": True}
 
 
-class PrepAttach(BaseModel):
-    prep: dict
-
-
-@router.put("/{run_id}/interview-prep")
-def attach_interview_prep(run_id: int, body: PrepAttach, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    r = _get(db, user, run_id)
-    r.result = {**r.result, "interview_prep": body.prep}
-    db.commit()
-    return {"ok": True}
-
-
 @router.delete("/{run_id}", status_code=204)
 def delete_run(run_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
     db.delete(_get(db, user, run_id))

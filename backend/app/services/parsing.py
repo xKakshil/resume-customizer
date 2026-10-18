@@ -60,6 +60,8 @@ class ParsedResume:
     sections: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     layout: list[dict] = field(default_factory=list)
+    style: dict = field(default_factory=dict)
+    source_id: str = ""
 
     @property
     def word_count(self) -> int:
@@ -78,6 +80,8 @@ class ParsedResume:
             "sections": self.sections,
             "warnings": self.warnings,
             "layout": self.layout,
+            "style": self.style,
+            "source_id": self.source_id,
         }
 
 
@@ -104,11 +108,19 @@ def detect_file_type(data: bytes, filename: str) -> str:
             raise UnsupportedFileError("This DOCX is password-protected. Please remove the password and upload it again.")
         raise UnsupportedFileError("Legacy .doc files aren't supported. Open it in Word or Google Docs and save as PDF or DOCX.")
     if name.endswith((".png", ".jpg", ".jpeg", ".webp", ".heic")):
-        raise UnsupportedFileError("Images aren't supported. Please upload your resume as a PDF or DOCX.")
-    raise UnsupportedFileError("Unsupported file type. Please upload a PDF or DOCX resume.")
+        raise UnsupportedFileError("Images aren't supported. Please upload your resume as a PDF, DOCX or LaTeX (.tex) file.")
+    head_text = data[:4096].decode("utf-8", "ignore")
+    if b"\x00" not in data[:4096]:
+        if name.endswith(".tex") or re.search(r"\\documentclass|\\begin\{document\}", head_text):
+            return "tex"
+        if name.endswith((".txt", ".md", ".markdown", ".text")):
+            return "txt"
+    raise UnsupportedFileError("Unsupported file type. Please upload a PDF, DOCX or LaTeX (.tex) resume.")
 
 
-def parse_resume(data: bytes, filename: str) -> ParsedResume:
+def parse_resume(data: bytes, filename: str, purpose: str = "resume") -> ParsedResume:
+    """purpose="resume" for the primary resume (strict checks), "supporting" for
+    optional extra documents (plain text allowed, no resume-shape warnings)."""
     settings = get_settings()
     if not data:
         raise ParseError("The uploaded file is empty.", code="empty_file")
@@ -119,11 +131,21 @@ def parse_resume(data: bytes, filename: str) -> ParsedResume:
         )
 
     file_type = detect_file_type(data, filename)
+    if file_type == "txt" and purpose == "resume":
+        raise UnsupportedFileError("Plain-text files can be added as supporting documents. For your resume, upload a PDF, DOCX or LaTeX (.tex) file.")
+    pages = None
     if file_type == "pdf":
         raw, pages, links = _extract_pdf(data, settings.max_pdf_pages)
-    else:
+    elif file_type == "docx":
         raw, links = _extract_docx(data)
-        pages = None
+    elif file_type == "tex":
+        from app.services.latex_source import tex_to_text
+        try:
+            raw, links = tex_to_text(data.decode("utf-8"))
+        except UnicodeDecodeError as exc:
+            raise ParseError("This .tex file isn't UTF-8 text. Save it as UTF-8 and try again.", code="bad_encoding") from exc
+    else:
+        raw, links = data.decode("utf-8", "replace"), []
 
     text = normalize_text(raw)
     links = _dedupe(links + _URL_RE.findall(text))
@@ -137,6 +159,13 @@ def parse_resume(data: bytes, filename: str) -> ParsedResume:
                 code="no_text",
             )
         raise ParseError("This document doesn't contain any readable text.", code="no_text")
+
+    if purpose == "supporting":
+        if len(text) < 30:
+            raise ParseError("This document has too little text to be useful.", code="too_short")
+        return ParsedResume(text=text[:20_000], filename=filename or f"document.{file_type}", file_type=file_type,
+                            size_bytes=len(data), pages=pages, links=links, sections=detect_sections(text),
+                            warnings=["Only the first 20,000 characters were kept."] if len(text) > 20_000 else [])
 
     if len(text) < settings.min_resume_chars:
         raise ParseError(
@@ -159,7 +188,7 @@ def parse_resume(data: bytes, filename: str) -> ParsedResume:
     if pages and pages > 3:
         warnings.append(f"Your resume is {pages} pages long. Most recruiters prefer 1–2 pages.")
 
-    layout = layout_checks(data, file_type)
+    layout = layout_checks(data, file_type) if file_type in ("pdf", "docx") else []
     for c in layout:
         if c["status"] == "fail" and c["id"] in {"columns", "textboxes", "glyphs"}:
             warnings.append(f"{c['detail']} {c['tip']}")

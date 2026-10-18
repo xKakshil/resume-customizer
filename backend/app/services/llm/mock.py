@@ -46,10 +46,10 @@ class MockProvider(LLMProvider):
         system, user = messages[0]["content"], messages[-1]["content"]
         jd = _between(user, "job_description")
         resume = _between(user, "resume")
+        if "resume editing assistant" in system.lower():
+            return json.dumps(_chat(messages))
         if "cover letter" in system.lower():
             return _cover_letter(jd, resume)
-        if "interviewer and career coach" in system.lower():
-            return json.dumps(_interview(jd, resume))
         locked = set()
         m = re.search(r"Do NOT change ([^:]+):", system)
         if m:
@@ -182,24 +182,47 @@ def _cover_letter(jd: str, resume: str) -> str:
             f"Sincerely,\n{name}")
 
 
-def _interview(jd: str, resume: str) -> dict:
-    kws = extract_jd_keywords(jd)
-    have = [k.name for k in kws if keyword_present(k.name, resume)]
-    gaps = [k.name for k in kws if not keyword_present(k.name, resume)]
-    _, secs = _split_sections(resume)
-    items = [e["head"].split("|")[0].strip() for e in _entries(secs.get("experience", []) + secs.get("projects", [])) if e["head"]]
-    qs = []
-    for skill in have[:3]:
-        qs.append({"category": "technical", "question": f"How have you used {skill} in production work?",
-                   "why_they_ask": f"Checks hands-on depth with {skill}.", "answer_points": [f"Describe where you used {skill}", "Explain one trade-off you made"],
-                   "based_on": items[0] if items else ""})
-    for item in items[:3]:
-        qs.append({"category": "project", "question": f"Walk me through {item}. What would you change today?",
-                   "why_they_ask": "Tests ownership and reflection.", "answer_points": ["Context and goal", "Your design choices", "Result and lesson"], "based_on": item})
-    qs.append({"category": "behavioral", "question": "Tell me about a time you missed a deadline.", "why_they_ask": "Accountability.",
-               "answer_points": ["Situation", "Task", "Action", "Result"], "based_on": ""})
-    qs.append({"category": "role", "question": "Why this role?", "why_they_ask": "Motivation and fit.", "answer_points": ["Link your work to the team's mission"], "based_on": ""})
-    return {"role_fit": [f"Hands-on experience with {s}" for s in have[:4]],
-            "questions": qs,
-            "skill_gaps": [{"skill": g, "why_it_matters": f"The role lists {g}.", "how_to_prepare": f"Build a small project using {g} and be ready to discuss it."} for g in gaps[:4]],
-            "questions_to_ask": ["What does success look like in the first 90 days?", "How is the team's on-call organised?", "What is the biggest technical challenge right now?"]}
+
+_FILLER = re.compile(r"\b(successfully|various|in order to|a number of|different|utilized|that were|which were)\b\s*", re.I)
+
+
+def _chat(messages: list[dict]) -> dict:
+    """Rule-based stand-in for the chat assistant (tests / no-API-key mode)."""
+    ctx = messages[1]["content"]
+    msg = messages[-1]["content"].lower()
+    current = json.loads(_between(ctx, "current_resume") or "{}")
+    nums = re.findall(r"\d+(?:\.\d+)?", msg)
+    if "margin" in msg and nums:
+        v = float(nums[0])
+        return {"reply": f"Set all margins to {v:g} inches.", "changes": [f"Margins → {v:g} in"],
+                "resume": None, "layout": {"margins": {"top": v, "bottom": v, "left": v, "right": v}}}
+    if "serif" in msg or "font" in msg:
+        fam = "sans" if "sans" in msg else "serif"
+        return {"reply": f"Switched to a {fam} font.", "changes": [f"Font → {fam}"], "resume": None, "layout": {"font_family": fam}}
+    if "remove" in msg and "summary" in msg:
+        return {"reply": "Removed the summary.", "changes": ["Summary hidden"], "resume": None, "layout": {"show_summary": False}}
+    if "summary" in msg:
+        skills = [i for g in current.get("skills", {}).get("groups", []) for i in g.get("items", [])][:4]
+        text = (f"Software engineer who builds and ships web applications and APIs with {', '.join(skills[:3])} and {skills[3] if len(skills) > 3 else 'modern tooling'}. "
+                "Writes tested, maintainable code and works closely with designers and product teams to deliver reliable features.")
+        current["summary"]["tailored"] = text
+        return {"reply": "Here's a short summary built from your resume.", "changes": ["Wrote a 2-sentence summary"],
+                "resume": current, "layout": {"show_summary": True}}
+    if any(w in msg for w in ("shorter", "concise", "tighten", "trim")):
+        n = 0
+        for item in [*current.get("experience", []), *current.get("projects", [])]:
+            for b in item.get("bullets", []):
+                t = b.get("tailored") or b.get("original", "")
+                short = _FILLER.sub("", t).strip()
+                for old, new in ((" backed by ", " on "), (" used by ", " for "), (" using ", " with "), (" in load tests", ""),
+                                 (" for the frontend repo", ""), ("Collaborated with designers in", "Worked with designers in")):
+                    short = short.replace(old, new)
+                if short != t:
+                    b["tailored"], n = short, n + 1
+        return {"reply": f"Tightened {n} bullet{'s' if n != 1 else ''} without changing any facts." if n else "Your bullets are already tight.",
+                "changes": [f"Shortened {n} bullets"] if n else [], "resume": current if n else None, "layout": None}
+    if any(w in msg for w in ("kubernetes", "led the team", "years of")):
+        return {"reply": "I can't add that — it isn't in your resume. If you've genuinely done it, tell me where and I'll add it to that bullet.",
+                "changes": [], "resume": None, "layout": None}
+    return {"reply": "Your resume covers the core backend requirements. Ask me to tighten bullets, add a summary, or change the page setup.",
+            "changes": [], "resume": None, "layout": None}

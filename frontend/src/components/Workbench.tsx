@@ -2,28 +2,33 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { History, LogOut, PencilLine, Plus, Sparkles, Square, Highlighter, X, RotateCw, AlertTriangle } from "lucide-react";
-import { ApiError, cleanJD, fetchJD, health, history as historyApi, parseResume, scoreResume, setAuthToken, tailorStream, auth } from "@/lib/api";
-import type { ConfirmedSkill, ParsedResume, Scores, Section, TailoredResume, Tone, User, Version } from "@/lib/types";
-import { ALL_SECTIONS } from "@/lib/types";
-import { effectiveResume, timeAgo } from "@/lib/resume";
+import { History, LogOut, PencilLine, Plus, Sparkles, Square, Highlighter, X, RotateCw, AlertTriangle, ClipboardList, SlidersHorizontal, MessageSquareText } from "lucide-react";
+import { ApiError, chat as chatApi, cleanJD, fetchJD, health, history as historyApi, parseDocument, parseResume, scoreResume, setAuthToken, tailorStream, toSupporting, auth } from "@/lib/api";
+import type { ChatMessage, ConfirmedSkill, LayoutSettings, ParsedResume, Scores, Section, SupportingDoc, TailoredResume, Tone, User, Version } from "@/lib/types";
+import { DEFAULT_SECTIONS } from "@/lib/types";
+import { DEFAULT_LAYOUT, fromStyle, normalizeLayout, originalMode } from "@/lib/layout";
+import { changeCount, effectiveResume, timeAgo } from "@/lib/resume";
 import { parsePartialResume } from "@/lib/partial";
 import { KEYS, load, save } from "@/lib/storage";
 import { SAMPLE_JD, SAMPLE_RESUME_URL } from "@/lib/sample";
-import { JDInput, MAX_JD, MIN_JD, Options, ResumeUpload, TONES, validateFile } from "./InputPanel";
+import { JDInput, MAX_DOCS, MAX_JD, MIN_JD, Options, ResumeUpload, SupportingDocs, TONES, validateFile } from "./InputPanel";
 import { OriginalPaper, ResumePaper } from "./ResumePaper";
 import { ChangesView } from "./ChangesView";
 import { BaselineInsights, InsightsView } from "./InsightsView";
 import { CoverLetterView } from "./CoverLetterView";
 import { CompareView } from "./CompareView";
-import { InterviewPrepView } from "./InterviewPrepView";
+import { PdfPreview } from "./PdfPreview";
+import { PageSetup } from "./PageSetup";
+import { ChatPanel } from "./ChatPanel";
 import { DownloadMenu } from "./DownloadMenu";
 import { AuthDialog, HistoryDrawer } from "./AccountUI";
 import { useTermsRegex } from "./highlight";
 import { Button, cx, useToast } from "./ui";
 
-type Tab = "resume" | "changes" | "insights" | "cover" | "interview" | "compare";
+type Tab = "resume" | "pdf" | "changes" | "insights" | "cover" | "compare";
+type Rail = "inputs" | "design" | "chat";
 const MAX_VERSIONS = 6;
+const uid = () => Math.random().toString(36).slice(2, 10);
 const STAGES: Record<string, string> = {
   connecting: "Sending to the editor",
   analyzing: "Reading the job description",
@@ -52,7 +57,18 @@ export function Workbench() {
   }, [jd]);
   const [parsed, setParsed] = useState<ParsedResume | null>(null);
   const [upload, setUpload] = useState<{ busy: boolean; progress: number; error: string | null; file: { name: string; size: number } | null }>({ busy: false, progress: 0, error: null, file: null });
-  const [sections, setSections] = useState<Section[]>(ALL_SECTIONS);
+  const [sections, setSectionsRaw] = useState<Section[]>(DEFAULT_SECTIONS);
+  const [layout, setLayoutRaw] = useState<LayoutSettings>(DEFAULT_LAYOUT);
+  const [docs, setDocs] = useState<SupportingDoc[]>([]);
+  // "Include a summary" and the page-setup "Show summary" are one setting.
+  const setSections = (next: Section[]) => {
+    setSectionsRaw(next);
+    setLayoutRaw((l) => ({ ...l, show_summary: next.includes("summary") }));
+  };
+  const setLayout = (next: LayoutSettings) => {
+    setLayoutRaw(next);
+    setSectionsRaw((ss) => (next.show_summary ? (ss.includes("summary") ? ss : ["summary", ...ss]) : ss.filter((x) => x !== "summary")));
+  };
   const [tone, setTone] = useState<Tone>("balanced");
   const [extra, setExtra] = useState("");
   const [confirmed, setConfirmed] = useState<ConfirmedSkill[]>([]);
@@ -67,6 +83,10 @@ export function Workbench() {
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("resume");
   const [preTab, setPreTab] = useState<"resume" | "insights">("resume");
+  const [rail, setRail] = useState<Rail>("inputs");
+  const [chats, setChats] = useState<Record<string, ChatMessage[]>>({});
+  const [chatBusy, setChatBusy] = useState(false);
+  const [undo, setUndo] = useState<{ id: string; prev: Version; prevLayout: LayoutSettings } | null>(null);
   const [editing, setEditing] = useState(false);
   const [highlightOn, setHighlightOn] = useState(true);
   const abortRef = useRef<AbortController | null>(null);
@@ -87,7 +107,13 @@ export function Workbench() {
     setJd(load(KEYS.jd, ""));
     setParsed(load<ParsedResume | null>(KEYS.resume, null));
     const opts = load<{ sections?: Section[]; tone?: Tone; extra?: string }>(KEYS.options, {});
-    if (opts.sections?.length) setSections(opts.sections);
+    const savedLayout = load<Partial<LayoutSettings> | null>(KEYS.layout, null);
+    const lay = normalizeLayout(savedLayout);
+    setLayoutRaw(lay);
+    // Older saves defaulted to rewriting the summary; it's opt-in now.
+    if (opts.sections?.length) setSectionsRaw(savedLayout ? opts.sections : opts.sections.filter((x) => x !== "summary"));
+    setDocs(load<SupportingDoc[]>(KEYS.docs, []));
+    setChats(load<Record<string, ChatMessage[]>>(KEYS.chat, {}));
     if (opts.tone) setTone(opts.tone);
     if (opts.extra) setExtra(opts.extra);
     setConfirmed(load<ConfirmedSkill[]>(KEYS.confirmed, []));
@@ -121,6 +147,15 @@ export function Workbench() {
   useEffect(() => void (hydrated && save(KEYS.options, { sections, tone, extra })), [sections, tone, extra, hydrated]);
   useEffect(() => void (hydrated && save(KEYS.versions, versions)), [versions, hydrated]);
   useEffect(() => void (hydrated && save(KEYS.confirmed, confirmed)), [confirmed, hydrated]);
+  useEffect(() => void (hydrated && save(KEYS.layout, layout)), [layout, hydrated]);
+  useEffect(() => void (hydrated && save(KEYS.docs, docs)), [docs, hydrated]);
+  useEffect(() => {
+    if (!hydrated) return;
+    // Keep chats for versions that still exist; drop proposals' heavy payloads once decided.
+    const keep: Record<string, ChatMessage[]> = {};
+    for (const v of versions) if (chats[v.key]?.length) keep[v.key] = chats[v.key].slice(-30).map((m) => (m.status && m.status !== "pending" ? { ...m, proposal: m.proposal && { ...m.proposal, result: null } } : m));
+    save(KEYS.chat, keep);
+  }, [chats, versions, hydrated]);
 
   // Wake the server (free hosting sleeps when idle) ---------------------------
   useEffect(() => {
@@ -174,6 +209,9 @@ export function Workbench() {
     try {
       const p = await parseResume(file, (progress) => setUpload((u) => ({ ...u, progress })));
       setParsed(p);
+      // Keep the look of the uploaded file until the user picks another template.
+      if (originalMode(p).available) setLayoutRaw((l) => fromStyle(p.style, l));
+      else setLayoutRaw((l) => (l.template === "original" ? { ...l, template: "classic" } : l));
       setUpload({ busy: false, progress: 100, error: null, file: null });
       setPreTab("resume");
     } catch (e) {
@@ -214,6 +252,21 @@ export function Workbench() {
     setConfirmed((cs) => [...cs.filter((c) => c.keyword.toLowerCase() !== keyword.toLowerCase()), { keyword, context }].slice(-20));
   const unconfirmSkill = (keyword: string) => setConfirmed((cs) => cs.filter((c) => c.keyword.toLowerCase() !== keyword.toLowerCase()));
 
+  const addDoc = (d: Omit<SupportingDoc, "id">) => setDocs((ds) => [...ds, { ...d, id: uid() }].slice(0, MAX_DOCS));
+  const uploadDoc = async (f: File) => {
+    if (f.size > 5 * 1024 * 1024) {
+      toast("error", "That file is over 5 MB.");
+      return;
+    }
+    try {
+      const d = await parseDocument(f);
+      addDoc({ label: f.name.replace(/\.[^.]+$/, "").slice(0, 80), text: d.text, filename: f.name, word_count: d.word_count });
+      toast("success", `Added ${f.name} (${d.word_count} words) as extra material.`);
+    } catch (e) {
+      toast("error", (e as Error).message);
+    }
+  };
+
   const loadSample = async () => {
     setJd(SAMPLE_JD);
     setJdTouched(false);
@@ -243,7 +296,7 @@ export function Workbench() {
     abortRef.current = ctrl;
     setEditing(false);
     setRun({ status: "streaming", stage: "connecting", raw: "", error: null });
-    setTab("resume");
+    setTab((t) => (t === "pdf" ? "pdf" : "resume"));
     if (window.innerWidth < 1024) setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
 
     let raw = "";
@@ -258,6 +311,7 @@ export function Workbench() {
           extra_instructions: extra,
           resume_filename: parsed.filename,
           confirmed_skills: confirmed,
+          supporting_documents: toSupporting(docs),
         },
         {
           onStatus: (s) => setRun((r) => ({ ...r, stage: s.stage })),
@@ -319,12 +373,67 @@ export function Workbench() {
   const editUnit = (path: string, text: string) => updateActive((v) => ({ ...v, edits: { ...v.edits, [path]: text } }));
 
   const removeVersion = (key: string) => {
+    if (undo?.prev.key === key) setUndo(null);
     setVersions((vs) => {
       const next = vs.filter((v) => v.key !== key);
       if (key === activeKey) setActiveKey(next.length ? next[next.length - 1].key : null);
       if (next.length < 2 && tab === "compare") setTab("resume");
       return next;
     });
+  };
+
+  // --- chat: the AI proposes, the user applies ----------------------------------
+  const setChat = (key: string, fn: (ms: ChatMessage[]) => ChatMessage[]) => setChats((c) => ({ ...c, [key]: fn(c[key] ?? []) }));
+  const sendChat = async (message: string) => {
+    if (!active || !parsed) return;
+    const key = active.key;
+    const prior = (chats[key] ?? []).filter((m) => !m.error).slice(-12).map((m) => ({ role: m.role, content: m.content.slice(0, 4000) }));
+    setChat(key, (ms) => [...ms, { id: uid(), role: "user", content: message }]);
+    setChatBusy(true);
+    try {
+      const res = await chatApi({
+        message,
+        history: prior,
+        resume: effectiveResume(active),
+        job_description: jd,
+        resume_text: parsed.text,
+        layout,
+        sections: active.result.meta.sections ?? sections,
+        confirmed_skills: confirmed,
+        supporting_documents: toSupporting(docs),
+      });
+      const useful = res.proposal && (res.proposal.result || res.proposal.layout);
+      setChat(key, (ms) => [...ms, { id: uid(), role: "assistant", content: res.reply, changes: res.changes, proposal: useful ? res.proposal : null, baseLayout: useful ? layout : undefined, status: useful ? "pending" : undefined }]);
+    } catch (e) {
+      setChat(key, (ms) => [...ms, { id: uid(), role: "assistant", content: (e as Error).message, error: true }]);
+    } finally {
+      setChatBusy(false);
+    }
+  };
+  const applyProposal = (id: string) => {
+    if (!active) return;
+    const msg = (chats[active.key] ?? []).find((m) => m.id === id);
+    const p = msg?.proposal;
+    if (!p) return;
+    setUndo({ id, prev: active, prevLayout: layout });
+    if (p.result) {
+      const result = { ...p.result, id: active.result.id, cover_letter: active.result.cover_letter };
+      // The proposal was made from the effective resume (decisions and edits already baked in).
+      updateActive((v) => ({ ...v, result, rejected: {}, edits: {} }));
+    }
+    if (p.layout) setLayout(p.layout);
+    // Other pending proposals were made against the old text — applying them now would undo this one.
+    setChat(active.key, (ms) => ms.map((m) => (m.id === id ? { ...m, status: "applied" } : m.status === "pending" ? { ...m, status: "discarded" } : m)));
+    toast("success", p.result ? "Change applied. Undo is in the chat." : "Page setup updated.");
+  };
+  const discardProposal = (id: string) => active && setChat(active.key, (ms) => ms.map((m) => (m.id === id ? { ...m, status: "discarded" } : m)));
+  const undoProposal = (id: string) => {
+    if (!undo || undo.id !== id) return;
+    setVersions((vs) => vs.map((v) => (v.key === undo.prev.key ? undo.prev : v)));
+    setLayout(undo.prevLayout);
+    setChat(undo.prev.key, (ms) => ms.map((m) => (m.id === id ? { ...m, status: "pending" } : m)));
+    setUndo(null);
+    toast("info", "Undone.");
   };
 
   const onAuthed = (token: string, u: User) => {
@@ -369,6 +478,13 @@ export function Workbench() {
 
   const partial = useMemo(() => (streaming ? parsePartialResume(run.raw) : null), [streaming, run.raw]);
   const getEffective = useCallback((): TailoredResume => effectiveResume(active!), [active]);
+  const effective = useMemo(() => (active ? effectiveResume(active) : null), [active]);
+  const exportOpts = useMemo(() => ({ layout, source_id: parsed?.source_id || undefined }), [layout, parsed?.source_id]);
+  const look = { font: layout.font_family, align: layout.header_align } as const;
+  const openRail = (r: Rail) => {
+    setRail(r);
+    if (r === "design" && active && tab !== "pdf") setTab("pdf");
+  };
 
   // --- render -------------------------------------------------------------------
   return (
@@ -415,81 +531,141 @@ export function Workbench() {
         </div>
       )}
 
-      <main className="mx-auto grid w-full max-w-[1500px] flex-1 gap-6 px-4 py-6 sm:px-6 lg:grid-cols-[400px_minmax(0,1fr)] lg:gap-8">
-        {/* ---------------- Left rail: inputs ---------------- */}
-        <aside className="no-print lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto lg:pr-1 scroll-thin">
-          <h1 className="text-[26px] font-bold leading-[1.15] tracking-tight">Fit your resume to the job.</h1>
-          <p className="mt-1.5 text-ink-2">Paste a posting, add your resume, and get an honest rewrite you can review line by line and download.</p>
-          {!parsed && !jd && (
-            <button onClick={loadSample} className="mt-2 text-sm font-medium text-blue underline-offset-2 hover:underline">
-              Try it with a sample resume and job
-            </button>
-          )}
+      <main className="mx-auto grid w-full max-w-[1500px] flex-1 gap-6 px-4 py-6 sm:px-6 lg:grid-cols-[380px_minmax(0,1fr)] lg:gap-8 xl:grid-cols-[420px_minmax(0,1fr)]">
+        {/* ---------------- Left rail: inputs · page setup · chat ---------------- */}
+        <aside className="no-print flex flex-col lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)]">
+          <nav className="mb-4 grid grid-cols-3 rounded-lg bg-desk-2 p-1" aria-label="Panels">
+            {(
+              [
+                ["inputs", "Inputs", ClipboardList],
+                ["design", "Page setup", SlidersHorizontal],
+                ["chat", "Ask AI", MessageSquareText],
+              ] as [Rail, string, typeof ClipboardList][]
+            ).map(([r, label, Icon]) => (
+              <button
+                key={r}
+                onClick={() => openRail(r)}
+                aria-current={rail === r ? "page" : undefined}
+                className={cx("flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-[13px] transition-colors", rail === r ? "bg-paper font-medium shadow-sm" : "text-muted hover:text-ink")}
+              >
+                <Icon className="size-3.5" aria-hidden /> {label}
+                {r === "chat" && active && (chats[active.key] ?? []).some((m) => m.status === "pending") && <span className="size-1.5 rounded-full bg-blue" aria-label="Pending proposal" />}
+              </button>
+            ))}
+          </nav>
 
-          <div className="mt-6 space-y-5">
-            <JDInput
-              value={jd}
-              onChange={(v) => {
-                setJd(v);
-                setJdClean(null);
-              }}
-              disabled={streaming}
-              onSubmit={tailor}
-              touched={jdTouched}
-              onPasted={onJdPasted}
-              cleanedLines={jdClean?.removed}
-              onUndoClean={() => {
-                if (jdClean) setJd(jdClean.previous);
-                setJdClean(null);
-              }}
-              onImport={importJD}
-            />
-            <ResumeUpload
-              parsed={parsed}
-              uploading={upload.busy}
-              progress={upload.progress}
-              error={upload.error}
-              pendingFile={upload.file}
-              onFile={handleFile}
-              onClear={() => {
-                setParsed(null);
-                setBaseline(null);
-              }}
-              disabled={streaming}
-            />
-            <Options sections={sections} tone={tone} extra={extra} onSections={setSections} onTone={setTone} onExtra={setExtra} disabled={streaming} />
-
-            {confirmed.length > 0 && (
-              <div>
-                <div className="mb-1.5 font-medium">Skills you confirmed</div>
-                <div className="flex flex-wrap gap-1.5">
-                  {confirmed.map((c) => (
-                    <span key={c.keyword} className="inline-flex items-center gap-1 rounded-full border border-green/40 bg-green-wash py-0.5 pl-2.5 pr-1 text-[13px] text-green" title={c.context || undefined}>
-                      {c.keyword}
-                      <button onClick={() => unconfirmSkill(c.keyword)} disabled={streaming} className="rounded-full p-0.5 hover:bg-green/15" aria-label={`Remove ${c.keyword}`}>
-                        <X className="size-3" />
-                      </button>
-                    </span>
-                  ))}
-                </div>
-                <p className="mt-1 text-xs text-muted">Not in your resume, but you said you have them — the next version can use them.</p>
-              </div>
+          <div className={cx("min-h-0 flex-1 lg:overflow-y-auto lg:pr-1 scroll-thin", rail !== "inputs" && "hidden")}>
+            {!versions.length && (
+              <>
+                <h1 className="text-[24px] font-bold leading-[1.15] tracking-tight">Fit your resume to the job.</h1>
+                <p className="mt-1 text-[14px] text-ink-2">Small, honest edits you approve line by line — in your own template.</p>
+                {!parsed && !jd && (
+                  <button onClick={loadSample} className="mt-1.5 text-sm font-medium text-blue underline-offset-2 hover:underline">
+                    Try a sample resume and job
+                  </button>
+                )}
+              </>
             )}
 
-            <div className="sticky bottom-0 -mx-1 bg-desk px-1 pb-1 pt-2 lg:static">
-              {streaming ? (
-                <Button size="lg" className="w-full" onClick={stop}>
-                  <Square className="size-4" /> Stop
-                </Button>
-              ) : (
-                <Button size="lg" variant="primary" className="w-full" onClick={tailor} disabled={upload.busy}>
-                  {versions.length ? <Plus className="size-4" /> : <Sparkles className="size-4" />}
-                  {versions.length ? "Generate another version" : "Tailor my resume"}
-                </Button>
+            <div className={cx("space-y-5", !versions.length && "mt-5")}>
+              <JDInput
+                value={jd}
+                onChange={(v) => {
+                  setJd(v);
+                  setJdClean(null);
+                }}
+                disabled={streaming}
+                onSubmit={tailor}
+                touched={jdTouched}
+                onPasted={onJdPasted}
+                cleanedLines={jdClean?.removed}
+                onUndoClean={() => {
+                  if (jdClean) setJd(jdClean.previous);
+                  setJdClean(null);
+                }}
+                onImport={importJD}
+              />
+              <ResumeUpload
+                parsed={parsed}
+                uploading={upload.busy}
+                progress={upload.progress}
+                error={upload.error}
+                pendingFile={upload.file}
+                onFile={handleFile}
+                onClear={() => {
+                  setParsed(null);
+                  setBaseline(null);
+                }}
+                disabled={streaming}
+              />
+              {parsed && (
+                <SupportingDocs
+                  docs={docs}
+                  onAdd={addDoc}
+                  onUpload={uploadDoc}
+                  onRemove={(id) => setDocs((ds) => ds.filter((d) => d.id !== id))}
+                  onRename={(id, label) => setDocs((ds) => ds.map((d) => (d.id === id ? { ...d, label } : d)))}
+                  disabled={streaming}
+                />
               )}
-              {!parsed && jdValid && <p className="mt-1.5 text-center text-xs text-muted">Upload your resume to continue.</p>}
+              <Options sections={sections} tone={tone} extra={extra} onSections={setSections} onTone={setTone} onExtra={setExtra} disabled={streaming} />
+
+              {confirmed.length > 0 && (
+                <div>
+                  <div className="mb-1.5 font-medium">Skills you confirmed</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {confirmed.map((c) => (
+                      <span key={c.keyword} className="inline-flex items-center gap-1 rounded-full border border-green/40 bg-green-wash py-0.5 pl-2.5 pr-1 text-[13px] text-green" title={c.context || undefined}>
+                        {c.keyword}
+                        <button onClick={() => unconfirmSkill(c.keyword)} disabled={streaming} className="rounded-full p-0.5 hover:bg-green/15" aria-label={`Remove ${c.keyword}`}>
+                          <X className="size-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                  <p className="mt-1 text-xs text-muted">Not in your resume, but you said you have them.</p>
+                </div>
+              )}
+
+              <div className="sticky bottom-0 -mx-1 bg-desk px-1 pb-1 pt-2">
+                {streaming ? (
+                  <Button size="lg" className="w-full" onClick={stop}>
+                    <Square className="size-4" /> Stop
+                  </Button>
+                ) : (
+                  <Button size="lg" variant="primary" className="w-full" onClick={tailor} disabled={upload.busy}>
+                    {versions.length ? <Plus className="size-4" /> : <Sparkles className="size-4" />}
+                    {versions.length ? "Generate another version" : "Tailor my resume"}
+                  </Button>
+                )}
+                {!parsed && jdValid && <p className="mt-1.5 text-center text-xs text-muted">Upload your resume to continue.</p>}
+              </div>
             </div>
           </div>
+
+          {rail === "design" && (
+            <div className="min-h-0 flex-1 lg:overflow-y-auto lg:pr-1 scroll-thin">
+              <PageSetup layout={layout} onChange={setLayout} parsed={parsed} />
+              {!active && <p className="mt-4 text-xs text-muted">Settings apply to the PDF view and every download once your resume is tailored.</p>}
+            </div>
+          )}
+
+          {rail === "chat" && (
+            <div className="min-h-0 flex-1 lg:overflow-hidden">
+              <ChatPanel
+                version={active}
+                layout={layout}
+                messages={active ? (chats[active.key] ?? []) : []}
+                busy={chatBusy}
+                onSend={sendChat}
+                onApply={applyProposal}
+                onDiscard={discardProposal}
+                onUndo={undoProposal}
+                undoId={undo && active && undo.prev.key === active.key ? undo.id : null}
+                onClear={() => active && setChat(active.key, () => [])}
+              />
+            </div>
+          )}
         </aside>
 
         {/* ---------------- Right: the desk ---------------- */}
@@ -518,7 +694,7 @@ export function Workbench() {
             <div>
               <StageBar stage={run.stage} chars={run.raw.length} />
               {partial && (partial.candidate.name || partial.summary.tailored) ? (
-                <ResumePaper resume={partial} version={null} re={null} streaming />
+                <ResumePaper resume={partial} version={null} re={null} streaming showSummary={sections.includes("summary")} look={look} />
               ) : (
                 <WritingPlaceholder />
               )}
@@ -526,16 +702,16 @@ export function Workbench() {
           ) : active ? (
             <div>
               <VersionStrip versions={versions} activeKey={active.key} onPick={setActiveKey} onRemove={removeVersion} />
-              <div className="no-print mx-auto mb-4 flex max-w-[800px] flex-wrap items-center gap-2">
+              <div className="no-print mx-auto mb-4 flex max-w-[1000px] flex-wrap items-center gap-2">
                 <nav className="flex flex-wrap rounded-lg bg-desk-2 p-1" aria-label="Result views">
                   {(
                     [
                       ["resume", "Resume"],
+                      ["pdf", "PDF view"],
                       ["changes", "Changes"],
                       ["insights", "Insights"],
-                      ["cover", "Cover letter"],
-                      ["interview", "Interview"],
                       ["compare", "Compare"],
+                      ["cover", "Cover letter"],
                     ] as [Tab, string][]
                   ).map(([t, label]) => (
                     <button
@@ -547,6 +723,7 @@ export function Workbench() {
                       {label}
                       {t === "insights" && active.result.scores.match.after?.score != null && <span className="ml-1.5 tabular-nums text-blue">{active.result.scores.match.after.score}</span>}
                       {t === "compare" && versions.length > 1 && <span className="ml-1.5 text-muted">{versions.length}</span>}
+                      {t === "changes" && <span className="ml-1.5 tabular-nums text-muted">{changeCount(active.result.resume).changed}</span>}
                     </button>
                   ))}
                 </nav>
@@ -562,15 +739,16 @@ export function Workbench() {
                     </Button>
                   </>
                 )}
-                <DownloadMenu getResume={getEffective} />
+                <DownloadMenu getResume={getEffective} opts={exportOpts} original={parsed} />
               </div>
 
               {tab === "resume" && (
                 <>
                   {editing && <p className="no-print mx-auto mb-2 max-w-[800px] text-center text-[13px] text-muted">Click any line to edit it. Your edits are used in every download.</p>}
-                  <ResumePaper resume={active.result.resume} version={active} re={re} editable={editing} onEdit={editUnit} />
+                  <ResumePaper resume={active.result.resume} version={active} re={re} editable={editing} onEdit={editUnit} showSummary={layout.show_summary} look={look} />
                 </>
               )}
+              {tab === "pdf" && effective && <PdfPreview resume={effective} layout={layout} sourceId={parsed?.source_id} onOpenSetup={() => openRail("design")} />}
               {tab === "changes" && <ChangesView version={active} resumeText={parsed?.text ?? ""} onToggle={toggleDecision} onRevertAll={revertAll} />}
               {tab === "insights" && (
                 <InsightsView
@@ -582,6 +760,7 @@ export function Workbench() {
                   busy={streaming}
                   layout={parsed?.layout}
                   getResume={getEffective}
+                  exportOpts={exportOpts}
                   key={active.key}
                 />
               )}
@@ -596,18 +775,6 @@ export function Workbench() {
                   runId={active.result.id}
                   signedIn={!!user}
                   onChange={(text) => updateActive((v) => ({ ...v, result: { ...v.result, cover_letter: text } }))}
-                />
-              )}
-              {tab === "interview" && (
-                <InterviewPrepView
-                  key={active.key}
-                  jd={jd}
-                  resumeText={active.result.tailored_text || parsed?.text || ""}
-                  title={[active.result.resume.jd_analysis.role_title, active.result.resume.jd_analysis.company].filter(Boolean).join(" — ") || "this role"}
-                  initial={active.result.interview_prep}
-                  runId={active.result.id}
-                  signedIn={!!user}
-                  onChange={(p) => updateActive((v) => ({ ...v, result: { ...v.result, interview_prep: p } }))}
                 />
               )}
               {tab === "compare" && <CompareView versions={versions} activeKey={active.key} />}
@@ -638,7 +805,7 @@ export function Workbench() {
       </main>
 
       <footer className="no-print border-t border-rule-soft px-4 py-4 text-center text-xs text-muted">
-        Tailor never invents experience: skills you don&apos;t have are suggested, not added. Your files are processed in memory and not stored unless you sign in.
+        Tailor never invents experience — skills you don&apos;t have are suggested, not added. Your original file is kept for 48 hours so downloads can reuse its template, then deleted. Results are saved only if you sign in.
       </footer>
 
       <AuthDialog open={authOpen} onClose={() => setAuthOpen(false)} onAuthed={onAuthed} />
@@ -699,7 +866,7 @@ function WritingPlaceholder() {
 function VersionStrip({ versions, activeKey, onPick, onRemove }: { versions: Version[]; activeKey: string; onPick: (k: string) => void; onRemove: (k: string) => void }) {
   if (versions.length < 1) return null;
   return (
-    <div className="no-print mx-auto mb-3 flex max-w-[800px] gap-2 overflow-x-auto pb-1 scroll-thin" role="tablist" aria-label="Versions">
+    <div className="no-print mx-auto mb-3 flex max-w-[1000px] gap-2 overflow-x-auto pb-1 scroll-thin" role="tablist" aria-label="Versions">
       {versions.map((v) => {
         const on = v.key === activeKey;
         const s = v.result.scores.match.after?.score;
@@ -722,15 +889,15 @@ function VersionStrip({ versions, activeKey, onPick, onRemove }: { versions: Ver
 function EmptyDesk() {
   const steps = [
     ["Paste the job description", "The more complete, the better the match — include the requirements."],
-    ["Upload your resume", "PDF or DOCX. We read it in memory and show you exactly what we extracted."],
-    ["Review every change", "Accept or revert each rewritten line, then download as PDF, Word or text."],
+    ["Upload your resume", "PDF, Word or LaTeX. Its template is kept for your downloads."],
+    ["Review, refine, download", "Accept or revert each line, ask the AI for more changes, set margins and fonts, then download."],
   ];
   return (
     <div className="paper mx-auto w-full max-w-[800px] px-6 py-10 sm:px-14 sm:py-14">
       <h2 className="font-serif text-[26px] font-semibold leading-tight">Your tailored resume appears here.</h2>
       <p className="mt-2 max-w-prose font-serif text-[16px] text-ink-2">
-        Tailor rewrites your summary and bullet points in the language of the job, reorders what matters most, and marks the words the{" "}
-        <mark className="hl">hiring team is scanning for</mark>. It never adds skills you don&apos;t have.
+        Tailor makes the smallest edits that help: it reorders what matters, tightens bullets in the language of the job, and marks the words the{" "}
+        <mark className="hl">hiring team is scanning for</mark>. Strong lines stay as you wrote them, and it never adds skills you don&apos;t have.
       </p>
       <ol className="mt-8 space-y-5">
         {steps.map(([title, body], i) => (
