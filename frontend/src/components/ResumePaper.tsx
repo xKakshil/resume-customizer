@@ -46,7 +46,7 @@ function Heading({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Flags({ b }: { b: Bullet }) {
+function Flags({ b }: { b: Pick<Bullet, "flags"> }) {
   if (!b.flags?.length) return null;
   const notes = b.flags.map(parseFlag).map(flagNote);
   return (
@@ -118,6 +118,7 @@ export function ResumePaper({ resume: r, version, re, streaming, editable, onEdi
           ) : (
             <p className={cx(streaming && "ink-in")}>
               <Highlight text={summary} re={re} />
+              {!version?.rejected.summary && version?.edits.summary === undefined && <Flags b={{ flags: r.summary.flags ?? [] }} />}
             </p>
           )}
         </section>

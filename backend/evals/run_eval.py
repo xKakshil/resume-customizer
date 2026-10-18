@@ -63,7 +63,13 @@ def metrics(result: dict, jd: str, repaired: bool) -> dict:
     joined = "\n".join(texts)
     stuffing = max((len(k.pattern.findall(joined)) for k in kw.lexicon() if kw.keyword_present(k.name, jd)), default=0)
     s, g = result["scores"], result["guardrails"]
+    kinds: dict[str, int] = {}
+    for f in [x for b in bullets for x in b.get("flags", [])] + r["summary"].get("flags", []):
+        k = f.split(":")[0].replace("unverified_", "")
+        kinds[k] = kinds.get(k, 0) + 1
     return {
+        "flag_types": ", ".join(f"{k}:{v}" for k, v in sorted(kinds.items())) or "-",
+        "headline": r["candidate"]["headline"] or "(removed/empty)",
         "valid_first_try": not repaired,
         "match_before": s["match"]["before"]["score"],
         "match_after": s["match"]["after"]["score"],
@@ -138,7 +144,7 @@ async def run(args) -> list[dict]:
 
 def write_report(rows: list[dict], path: Path) -> None:
     cols = ["jd", "valid_first_try", "match_before", "match_after", "ats_before", "ats_after", "skills_stripped",
-            "bullets_flagged", "details_removed", "summary_words", "action_verb_pct", "avg_bullet_words",
+            "bullets_flagged", "flag_types", "details_removed", "summary_words", "action_verb_pct", "avg_bullet_words",
             "max_keyword_repeats", "seconds"]
     lines = ["# Tailoring evaluation", "", f"Model: `{next((r['model'] for r in rows if 'model' in r), 'n/a')}`", "",
              "| " + " | ".join(cols) + " |", "|" + "---|" * len(cols)]
@@ -154,7 +160,7 @@ def write_report(rows: list[dict], path: Path) -> None:
             j = r["judge"]
             lines.append(f"| {r['jd']} | {j.get('truthfulness', '')} | {j.get('relevance', '')} | {j.get('readability', '')} | {j.get('reason', '')} |")
     lines += ["", "Targets: valid_first_try = True · skills_stripped / bullets_flagged / details_removed = 0 · "
-              "summary 40–70 words · action verbs ≥ 85% · avg bullet ≤ 30 words · max keyword repeats ≤ 3."]
+              "summary 45–70 words · headline never the JD title · action verbs ≥ 85% · avg bullet ≤ 30 words · max keyword repeats ≤ 3."]
     path.write_text("\n".join(lines) + "\n")
     (path.with_suffix(".json")).write_text(json.dumps(rows, indent=2))
 

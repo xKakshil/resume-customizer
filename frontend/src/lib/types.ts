@@ -26,7 +26,7 @@ export interface TailoredResume {
     headline: string;
     contact: { email: string; phone: string; location: string; links: { label: string; url: string }[] };
   };
-  summary: { original: string; tailored: string; rationale: string };
+  summary: { original: string; tailored: string; rationale: string; flags?: string[] };
   skills: { original: string[]; groups: { category: string; items: string[] }[]; matched: string[]; rationale: string };
   experience: { title: string; company: string; location: string; dates: string; bullets: Bullet[]; rationale: string }[];
   projects: { name: string; tech: string[]; dates: string; link: string; bullets: Bullet[]; rationale: string }[];

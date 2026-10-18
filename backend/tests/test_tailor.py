@@ -137,3 +137,25 @@ def test_clean_jd_removes_board_boilerplate_only():
     assert out.splitlines()[0] == "Backend Engineer"
     assert "Build REST APIs in Python." in out and "own services" in out
     assert "Apply now" not in out and "equal opportunity" not in out
+
+
+def test_headline_copying_jd_title_is_removed():
+    r = make()
+    r.jd_analysis.role_title = "Machine Learning Engineer Intern"
+    r.candidate.headline = "Machine Learning Engineer Intern"
+    report = apply_guardrails(r, req(), resume_text(), [])
+    assert r.candidate.headline == "" and any("headline" in d for d in report["removed_details"])
+
+
+def test_honest_headline_is_kept():
+    r = make()
+    r.candidate.headline = "Software Engineer · Python & React"
+    apply_guardrails(r, req(), resume_text(), [])
+    assert r.candidate.headline == "Software Engineer · Python & React"
+
+
+def test_summary_with_unverified_skill_is_flagged():
+    r = make()
+    r.summary.tailored = "Backend engineer running Kubernetes clusters in production for payments."
+    apply_guardrails(r, req(), resume_text(), [])
+    assert any(f.startswith("unverified_skill") and "kubernetes" in f for f in r.summary.flags)

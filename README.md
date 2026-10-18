@@ -305,7 +305,8 @@ It writes `evals/report.md` with one row per JD:
 | `valid_first_try` | Model broke the JSON schema and needed the repair call | True |
 | `match_before → after`, `ats_before → after` | Whether tailoring actually helps (same deterministic scorer) | ↑ |
 | `skills_stripped`, `bullets_flagged`, `details_removed` | Hallucinated skills, numbers, tools, dates — caught by guardrails | 0 |
-| `summary_words`, `action_verb_pct`, `avg_bullet_words` | Prompt's style rules followed | 40–70, ≥ 85%, ≤ 30 |
+| `summary_words`, `action_verb_pct`, `avg_bullet_words` | Prompt's style rules followed | 45–70, ≥ 85%, ≤ 30 |
+| `flag_types` | Which guardrails fired (number, skill, copied, drift) — read those bullets | ideally `-` |
 | `max_keyword_repeats` | Keyword stuffing | ≤ 3 |
 
 Change the prompt in `app/services/prompts.py`, rerun, compare reports.

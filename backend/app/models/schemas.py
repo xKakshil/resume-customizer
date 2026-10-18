@@ -63,6 +63,7 @@ class Summary(Lenient):
     original: str = ""
     tailored: str = ""
     rationale: str = ""
+    flags: list[str] = Field(default_factory=list)  # set by guardrails
 
 
 class SkillGroup(Lenient):

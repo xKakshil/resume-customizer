@@ -132,6 +132,10 @@ def grounding(original: str, tailored: str) -> float:
     return 1.0 if not o else len(o & words(tailored)) / len(o)
 
 
+# Generic role descriptors ("Backend engineer") aren't skill claims.
+_ROLE_WORDS = {"backend", "frontend", "full stack", "devops", "mobile development"}
+
+
 def _ngrams(text: str, n: int = 8) -> set[tuple[str, ...]]:
     words = re.findall(r"[a-z0-9+#]+", text.lower())
     return {tuple(words[i:i + n]) for i in range(len(words) - n + 1)}
@@ -146,6 +150,16 @@ def apply_guardrails(r: TailoredResume, req: TailorRequest, resume: str, jd_keyw
     resume_lex = kw.resume_skills(resume)
     resume_nums = set(_NUM_RE.findall(resume))
     jd_grams = _ngrams(jd) if jd else set()
+
+    # 0. Headline: must not claim a job title or skills the resume doesn't support.
+    headline = r.candidate.headline.strip()
+    if headline:
+        role = r.jd_analysis.role_title.strip()
+        copied_title = role and _norm(role) in _norm(headline) and _norm(role) not in _norm(original_resume)
+        new_skills = kw.resume_skills(headline) - resume_lex - _ROLE_WORDS
+        if copied_title or new_skills:
+            report["removed_details"].append(f"headline '{headline}'")
+            r.candidate.headline = ""
 
     # 1. Locked sections → originals.
     if "summary" not in req.sections:
@@ -190,6 +204,14 @@ def apply_guardrails(r: TailoredResume, req: TailorRequest, resume: str, jd_keyw
         g.items = list(dict.fromkeys(kept))
     r.skills.groups = [g for g in r.skills.groups if g.items]
     r.skills.matched = [m for m in r.skills.matched if _evidenced(m, resume, resume_lex)]
+
+    # 4a. Summary: same number/skill checks as bullets.
+    if "summary" in req.sections and r.summary.tailored and r.summary.tailored != r.summary.original:
+        new_nums = set(_NUM_RE.findall(r.summary.tailored)) - resume_nums
+        new_tech = kw.resume_skills(r.summary.tailored) - resume_lex - _ROLE_WORDS
+        r.summary.flags = ([f"unverified_number:{','.join(sorted(new_nums))}"] if new_nums else []) + \
+                          ([f"unverified_skill:{','.join(sorted(new_tech))}"] if new_tech else [])
+        report["summary_flagged"] = bool(r.summary.flags)
 
     # 4. Flag bullets that introduce unverified numbers / technologies.
     for item in [*r.experience, *r.projects]:

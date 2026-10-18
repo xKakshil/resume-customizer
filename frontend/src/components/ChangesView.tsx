@@ -218,6 +218,7 @@ export function ChangesView({
             edited={version.edits.summary !== undefined}
             onToggle={() => onToggle("summary")}
             mode={mode}
+            flags={version.rejected.summary ? [] : r.summary.flags}
           />
         </section>
       )}
