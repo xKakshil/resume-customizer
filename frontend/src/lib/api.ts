@@ -70,6 +70,12 @@ export interface Health {
   limits: { max_upload_mb: number; min_jd_chars: number; max_jd_chars: number };
 }
 export const health = (signal?: AbortSignal) => request<Health>("/api/health", { signal });
+/** Cheap keep-alive: stops free hosting from putting the server to sleep while the app is open. */
+export const ping = () => fetch(`${API_URL}/api/ping`, { cache: "no-store" }).then(() => undefined, () => undefined);
+
+/** True when the API runs on free hosting that sleeps when idle (any non-local deployment by default). */
+export const FREE_HOSTING =
+  process.env.NEXT_PUBLIC_FREE_HOSTING === "true" || (process.env.NEXT_PUBLIC_FREE_HOSTING !== "false" && !/localhost|127\.0\.0\.1/.test(API_URL));
 
 /** Upload with progress (XHR, because fetch has no upload progress). */
 export function parseResume(file: File, onProgress?: (pct: number) => void, signal?: AbortSignal): Promise<ParsedResume> {

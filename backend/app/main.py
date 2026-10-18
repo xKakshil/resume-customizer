@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -91,6 +92,13 @@ def create_app() -> FastAPI:
     for r in (resume.router, chat.router, cover_letter.router, export.router, auth.router, history.router):
         app.include_router(r)
 
+    started = time.monotonic()
+
+    @app.api_route("/api/ping", methods=["GET", "HEAD"], tags=["meta"],
+                   summary="Cheap liveness check for uptime monitors and keep-alive pings (no database, no AI call)")
+    async def ping():
+        return JSONResponse({"ok": True, "uptime_s": int(time.monotonic() - started)}, headers={"Cache-Control": "no-store"})
+
     @app.get("/api/health", tags=["meta"])
     async def health():
         chain = get_chain()
@@ -100,7 +108,7 @@ def create_app() -> FastAPI:
 
     @app.get("/", include_in_schema=False)
     async def root():
-        return {"name": s.app_name, "docs": "/docs", "health": "/api/health"}
+        return {"name": s.app_name, "docs": "/docs", "health": "/api/health", "ping": "/api/ping"}
 
     return app
 

@@ -30,4 +30,5 @@ export const KEYS = {
   layout: "tailor.layout",
   docs: "tailor.docs",
   chat: "tailor.chat",
+  hostingNote: "tailor.hostingNoteDismissed",
 } as const;

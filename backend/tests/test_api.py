@@ -302,3 +302,9 @@ def test_eval_harness_runs(tmp_path):
     assert rows and "error" not in rows[0] and rows[0]["valid_first_try"] is True
     run_eval.write_report(rows, tmp_path / "report.md")
     assert "| backend_sde1 |" in (tmp_path / "report.md").read_text()
+
+
+def test_ping_is_cheap_and_uncached(client):
+    r = client.get("/api/ping")
+    assert r.status_code == 200 and r.json()["ok"] is True and r.headers["cache-control"] == "no-store"
+    assert client.head("/api/ping").status_code == 200

@@ -244,12 +244,15 @@ docker run -p 8000:8000 --env-file .env resume-customizer-api
 2. In Render: **New → Blueprint**, pick the repo. `render.yaml` creates the `resume-customizer-api` web service from `backend/Dockerfile`.
 3. Fill in the prompted secrets: `GEMINI_API_KEY`, `GROQ_API_KEY`, and `CORS_ORIGINS` (your Vercel URL, e.g. `https://tailor-resume.vercel.app`). Optionally `CORS_ORIGIN_REGEX` for preview deployments and `DATABASE_URL` for a Postgres database (e.g. [Neon](https://neon.tech) free tier) so accounts and history survive restarts.
 4. Check `https://<service>.onrender.com/api/health`.
+5. **Keep it awake (optional).** The free plan sleeps after ~15 idle minutes, and the next visitor waits ~30–60 s for a cold start. In GitHub, go to **Settings → Secrets and variables → Actions → Variables** and add `BACKEND_URL=https://<service>.onrender.com`. The `keep-alive` workflow then calls `/api/ping` every 10 minutes. An external monitor such as [UptimeRobot](https://uptimerobot.com) or [cron-job.org](https://cron-job.org) pointed at `/api/ping` works too and is more punctual than GitHub's scheduler.
 
 ### Frontend → Vercel
 
 1. **Add New → Project**, import the repo, set **Root Directory** to `frontend`.
 2. Add the env var `NEXT_PUBLIC_API_URL=https://<service>.onrender.com`.
 3. Deploy, then make sure that URL is in the backend's `CORS_ORIGINS`.
+
+On any non-localhost API URL the app shows a dismissible "hosted on a free plan" note, a start-up progress bar while the server wakes, and pings the backend every 10 minutes while a tab is open. Set `NEXT_PUBLIC_FREE_HOSTING=false` to turn this off on paid hosting.
 
 ---
 
@@ -258,6 +261,7 @@ docker run -p 8000:8000 --env-file .env resume-customizer-api
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/api/health` | Status, configured LLM providers and input limits. |
+| `GET` · `HEAD` | `/api/ping` | Cheap liveness check for uptime monitors and keep-alive pings (no database or AI call). |
 | `POST` | `/api/resume/parse` | Multipart `file` (PDF/DOCX/TeX ≤ 5 MB) → text, metadata, sections, links, warnings, detected `style` and a `source_id` for template matching. |
 | `POST` | `/api/documents/parse` | Multipart `file` (PDF/DOCX/TeX/TXT/MD) → text of a supporting document. |
 | `POST` | `/api/chat` | `{message, history, resume, job_description, resume_text, layout, …}` → `{reply, changes, proposal: {result, layout, diff} \| null}`. Nothing is applied server-side. |

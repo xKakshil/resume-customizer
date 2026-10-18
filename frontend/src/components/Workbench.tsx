@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, History, LogOut, PencilLine, Plus, Sparkles, Square, Highlighter, X, RotateCw, AlertTriangle, ClipboardList, SlidersHorizontal, MessageSquareText } from "lucide-react";
-import { ApiError, chat as chatApi, cleanJD, fetchJD, health, history as historyApi, parseDocument, parseResume, scoreResume, setAuthToken, tailorStream, toSupporting, auth } from "@/lib/api";
+import { ApiError, FREE_HOSTING, ping, chat as chatApi, cleanJD, fetchJD, health, history as historyApi, parseDocument, parseResume, scoreResume, setAuthToken, tailorStream, toSupporting, auth } from "@/lib/api";
 import type { ChatMessage, ConfirmedSkill, LayoutSettings, ParsedResume, Scores, Section, SupportingDoc, TailoredResume, Tone, User, Version } from "@/lib/types";
 import { DEFAULT_SECTIONS } from "@/lib/types";
 import { DEFAULT_LAYOUT, fromStyle, normalizeLayout, originalMode } from "@/lib/layout";
@@ -108,6 +108,8 @@ export function Workbench() {
   const [authOpen, setAuthOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [server, setServer] = useState<"checking" | "waking" | "ok" | "down" | "no_llm">("checking");
+  const [wakeSecs, setWakeSecs] = useState(0);
+  const [retryKey, setRetryKey] = useState(0);
   const [hydrated, setHydrated] = useState(false);
 
   // Restore session ------------------------------------------------------------
@@ -171,9 +173,12 @@ export function Workbench() {
   // Wake the server (free hosting sleeps when idle) ---------------------------
   useEffect(() => {
     let cancelled = false;
+    const t0 = Date.now();
     const slow = setTimeout(() => !cancelled && setServer((s) => (s === "checking" ? "waking" : s)), 2500);
+    const tick = setInterval(() => !cancelled && setWakeSecs(Math.round((Date.now() - t0) / 1000)), 1000);
     (async () => {
-      const deadline = Date.now() + 100_000;
+      // A cold start on free hosting is usually 30–60 s, occasionally longer.
+      const deadline = Date.now() + 150_000;
       while (!cancelled && Date.now() < deadline) {
         try {
           const ctrl = new AbortController();
@@ -181,17 +186,27 @@ export function Workbench() {
           const h = await health(ctrl.signal);
           clearTimeout(t);
           if (!cancelled) setServer(h.llm.length ? "ok" : "no_llm");
+          clearInterval(tick);
           return;
         } catch {
           await new Promise((r) => setTimeout(r, 3000));
         }
       }
+      clearInterval(tick);
       if (!cancelled) setServer("down");
     })();
     return () => {
       cancelled = true;
       clearTimeout(slow);
+      clearInterval(tick);
     };
+  }, [retryKey]);
+
+  // Keep the server awake while the app is open and visible (free hosting sleeps after ~15 idle minutes).
+  useEffect(() => {
+    if (!FREE_HOSTING) return;
+    const id = setInterval(() => document.visibilityState === "visible" && ping(), 10 * 60_000);
+    return () => clearInterval(id);
   }, []);
 
   // Baseline score as soon as both inputs are valid (cheap, no LLM) ----------
@@ -543,16 +558,16 @@ export function Workbench() {
         </div>
       </header>
 
-      {server === "waking" && (
-        <div className="no-print border-b border-rule-soft bg-amber-wash px-4 py-2 text-center text-[13px] text-amber" role="status">
-          Waking up the server — free hosting sleeps when idle, so the first request can take up to a minute.
-        </div>
-      )}
+      {server === "waking" && <WakeBanner secs={wakeSecs} />}
       {server === "down" && (
-        <div className="no-print border-b border-rule-soft bg-red-wash px-4 py-2 text-center text-[13px] text-red" role="alert">
-          The server isn&apos;t responding right now. Please refresh in a minute.
+        <div className="no-print flex flex-wrap items-center justify-center gap-x-3 gap-y-1 border-b border-rule-soft bg-red-wash px-4 py-2 text-center text-[13px] text-red" role="alert">
+          The server didn&apos;t start in time. Free hosting can be slow after a long idle period.
+          <button onClick={() => { setServer("checking"); setWakeSecs(0); setRetryKey((k) => k + 1); }} className="font-medium underline underline-offset-2">
+            Try again
+          </button>
         </div>
       )}
+      {server !== "waking" && server !== "down" && FREE_HOSTING && <FreeHostingNote />}
       {server === "no_llm" && (
         <div className="no-print border-b border-rule-soft bg-red-wash px-4 py-2 text-center text-[13px] text-red" role="alert">
           The server has no AI provider configured, so tailoring is unavailable. Parsing and scoring still work.
@@ -854,10 +869,61 @@ export function Workbench() {
 }
 
 // ---------------------------------------------------------------------------
+function WakeBanner({ secs }: { secs: number }) {
+  // Typical cold start is under a minute; the bar fills over ~60 s and then waits at the end.
+  const pct = Math.min(95, Math.round((secs / 60) * 100));
+  return (
+    <div className="no-print border-b border-amber/20 bg-amber-wash px-4 py-2.5 text-[13px] text-amber" role="status" aria-live="polite">
+      <div className="mx-auto flex max-w-[1500px] flex-wrap items-center gap-x-4 gap-y-1.5 sm:px-2">
+        <span className="font-medium">Starting the server</span>
+        <span className="text-amber/90">
+          This app runs on free hosting, which sleeps when nobody is using it. Waking it usually takes under a minute; you can paste your job post and upload your resume meanwhile.
+        </span>
+        <span className="ml-auto flex items-center gap-2 tabular-nums">
+          <span className="h-1.5 w-28 overflow-hidden rounded-full bg-amber/15" aria-hidden>
+            <span className="block h-full rounded-full bg-amber/70 transition-[width] duration-1000" style={{ width: `${pct}%` }} />
+          </span>
+          {secs}s
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/** One-time note (dismissible) that the demo runs on free hosting. */
+function FreeHostingNote() {
+  const [hidden, setHidden] = useState(true);
+  useEffect(() => {
+    /* eslint-disable-next-line react-hooks/set-state-in-effect */
+    setHidden(load<boolean>(KEYS.hostingNote, false));
+  }, []);
+  if (hidden) return null;
+  return (
+    <div className="no-print border-b border-rule-soft bg-paper/70 px-4 py-2 text-[13px] text-ink-2">
+      <div className="mx-auto flex max-w-[1500px] items-center gap-3 sm:px-2">
+        <span className="size-1.5 shrink-0 rounded-full bg-amber" aria-hidden />
+        <span className="flex-1">
+          Hosted on a free plan: if the app hasn&apos;t been used for a while, the first request can take up to a minute while the server starts.
+        </span>
+        <button
+          onClick={() => {
+            save(KEYS.hostingNote, true);
+            setHidden(true);
+          }}
+          className="shrink-0 rounded p-1 text-muted hover:bg-desk-2 hover:text-ink"
+          aria-label="Dismiss note"
+        >
+          <X className="size-3.5" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function ServerBadge({ state }: { state: string }) {
   const map: Record<string, [string, string]> = {
     checking: ["bg-rule", "Connecting"],
-    waking: ["bg-amber animate-pulse", "Waking server"],
+    waking: ["bg-amber animate-pulse", "Starting server"],
     ok: ["bg-green", "Ready"],
     down: ["bg-red", "Offline"],
     no_llm: ["bg-red", "AI unavailable"],
