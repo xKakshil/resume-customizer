@@ -2,7 +2,7 @@
 
 Paste a job description, upload your resume (PDF or DOCX), and get an **honest, ATS-friendly version tailored to the role** — streamed live, scored before and after, reviewable line by line, and downloadable as PDF, Word, Markdown or plain text. It also writes a matching cover letter.
 
-**Live app:** `https://<your-app>.vercel.app` · **API docs:** `https://<your-api>.onrender.com/docs`
+**Live app:** https://resume-customizer-nu.vercel.app · **API docs:** https://resume-customizer-api-weqs.onrender.com/docs
 
 ![Tailored resume with JD keywords highlighted](docs/screenshots/result.png)
 
