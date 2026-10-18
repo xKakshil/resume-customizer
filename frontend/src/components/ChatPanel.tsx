@@ -221,12 +221,12 @@ export function ChatPanel({
         )}
         {messages.map((m) =>
           m.role === "user" ? (
-            <div key={m.id} className="ml-8 rounded-lg rounded-br-sm bg-blue px-3 py-2 text-[13.5px] text-white">
-              {m.content}
+            <div key={m.id} className="flex justify-end">
+              <div className="ml-10 max-w-[85%] rounded-2xl rounded-br-md bg-ink px-3.5 py-2 text-[13.5px] text-paper">{m.content}</div>
             </div>
           ) : (
             <div key={m.id} className="mr-2">
-              <div className={cx("rounded-lg rounded-bl-sm px-3 py-2 text-[13.5px]", m.error ? "bg-red-wash text-red" : "bg-paper text-ink shadow-sm")}>
+              <div className={cx("rounded-2xl rounded-bl-md px-3.5 py-2.5 text-[13.5px]", m.error ? "bg-red-wash text-red" : "bg-paper text-ink ring-1 ring-rule-soft")}>
                 <p className="whitespace-pre-wrap">{m.content}</p>
                 {m.changes && m.changes.length > 0 && (
                   <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[12.5px] text-ink-2">

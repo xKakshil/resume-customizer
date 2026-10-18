@@ -79,7 +79,7 @@ export function PageSetup({ layout, onChange, parsed }: { layout: LayoutSettings
     <div className="space-y-5">
       <section>
         <h3 className="mb-2 font-medium">Template</h3>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-3 gap-2">
           {templates.map((t) => {
             const on = layout.template === t.id;
             return (
@@ -92,7 +92,7 @@ export function PageSetup({ layout, onChange, parsed }: { layout: LayoutSettings
                 className={cx(
                   "relative rounded-lg border px-2.5 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50",
                   on ? "border-blue bg-blue-wash/60" : "border-rule bg-paper hover:border-ink-2",
-                  t.id === "original" && "col-span-2",
+                  t.id === "original" && "col-span-3",
                 )}
               >
                 <span className="flex items-center gap-1.5 text-sm font-medium">

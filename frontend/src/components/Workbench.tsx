@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { History, LogOut, PencilLine, Plus, Sparkles, Square, Highlighter, X, RotateCw, AlertTriangle, ClipboardList, SlidersHorizontal, MessageSquareText } from "lucide-react";
+import { Check, History, LogOut, PencilLine, Plus, Sparkles, Square, Highlighter, X, RotateCw, AlertTriangle, ClipboardList, SlidersHorizontal, MessageSquareText } from "lucide-react";
 import { ApiError, chat as chatApi, cleanJD, fetchJD, health, history as historyApi, parseDocument, parseResume, scoreResume, setAuthToken, tailorStream, toSupporting, auth } from "@/lib/api";
 import type { ChatMessage, ConfirmedSkill, LayoutSettings, ParsedResume, Scores, Section, SupportingDoc, TailoredResume, Tone, User, Version } from "@/lib/types";
 import { DEFAULT_SECTIONS } from "@/lib/types";
@@ -28,6 +28,15 @@ import { Button, cx, useToast } from "./ui";
 type Tab = "resume" | "pdf" | "changes" | "insights" | "cover" | "compare";
 type Rail = "inputs" | "design" | "chat";
 const MAX_VERSIONS = 6;
+/** Toolbar width follows the content below it so edges line up. */
+const WIDTH: Record<Tab, string> = {
+  resume: "max-w-[800px]",
+  pdf: "max-w-[900px]",
+  changes: "max-w-[1000px]",
+  insights: "max-w-[800px]",
+  compare: "max-w-[1100px]",
+  cover: "max-w-[800px]",
+};
 const uid = () => Math.random().toString(36).slice(2, 10);
 const STAGES: Record<string, string> = {
   connecting: "Sending to the editor",
@@ -84,6 +93,8 @@ export function Workbench() {
   const [tab, setTab] = useState<Tab>("resume");
   const [preTab, setPreTab] = useState<"resume" | "insights">("resume");
   const [rail, setRail] = useState<Rail>("inputs");
+  // After the first version, the job post and options fold into one-line summaries.
+  const [open, setOpen] = useState<{ jd: boolean; options: boolean }>({ jd: false, options: false });
   const [chats, setChats] = useState<Record<string, ChatMessage[]>>({});
   const [chatBusy, setChatBusy] = useState(false);
   const [undo, setUndo] = useState<{ id: string; prev: Version; prevLayout: LayoutSettings } | null>(null);
@@ -481,6 +492,15 @@ export function Workbench() {
   const effective = useMemo(() => (active ? effectiveResume(active) : null), [active]);
   const exportOpts = useMemo(() => ({ layout, source_id: parsed?.source_id || undefined }), [layout, parsed?.source_id]);
   const look = { font: layout.font_family, align: layout.header_align } as const;
+  const jdTitle = active ? [active.result.resume.jd_analysis.role_title, active.result.resume.jd_analysis.company].filter(Boolean).join(" at ") : "";
+  const jdSummary = jdTitle || jd.trim().split("\n")[0].slice(0, 80) || "Not added";
+  const optionsSummary = [
+    sections.filter((x) => x !== "summary").map((x) => x[0].toUpperCase() + x.slice(1)).join(", "),
+    TONES.find((t) => t.value === tone)?.label,
+    sections.includes("summary") ? "with summary" : "no summary",
+  ]
+    .filter(Boolean)
+    .join(", ");
   const openRail = (r: Rail) => {
     setRail(r);
     if (r === "design" && active && tab !== "pdf") setTab("pdf");
@@ -490,13 +510,21 @@ export function Workbench() {
   return (
     <div className="flex min-h-screen flex-col">
       <header className="no-print sticky top-0 z-40 border-b border-rule-soft bg-desk/90 backdrop-blur">
-        <div className="mx-auto flex h-14 max-w-[1500px] items-center gap-3 px-4 sm:px-6">
-          <Link href="/" className="mr-auto flex items-center gap-2 text-[19px] font-bold tracking-tight">
+        <div className="mx-auto flex h-14 max-w-[1500px] items-center gap-3 px-4 sm:px-6 lg:gap-8">
+          <Link href="/" className="mr-auto flex shrink-0 items-center gap-2 text-[19px] font-bold tracking-tight lg:mr-0 lg:w-[380px] xl:w-[420px]">
             <span className="relative">
               <span className="absolute inset-x-[-3px] -bottom-[1px] h-[6px] -skew-x-6 rounded-sm bg-hl" aria-hidden />
               <span className="relative">Tailor</span>
             </span>
           </Link>
+          <Steps
+            steps={[
+              { label: "Job post", done: jdValid },
+              { label: "Resume", done: !!parsed },
+              { label: "Tailor", done: versions.length > 0, busy: streaming },
+              { label: "Review & download", done: false, current: versions.length > 0 && !streaming },
+            ]}
+          />
           <ServerBadge state={server} />
           {user ? (
             <>
@@ -531,10 +559,10 @@ export function Workbench() {
         </div>
       )}
 
-      <main className="mx-auto grid w-full max-w-[1500px] flex-1 gap-6 px-4 py-6 sm:px-6 lg:grid-cols-[380px_minmax(0,1fr)] lg:gap-8 xl:grid-cols-[420px_minmax(0,1fr)]">
+      <main className="mx-auto grid w-full max-w-[1500px] flex-1 grid-cols-[minmax(0,1fr)] gap-6 px-4 py-6 sm:px-6 lg:grid-cols-[380px_minmax(0,1fr)] lg:gap-8 xl:grid-cols-[420px_minmax(0,1fr)]">
         {/* ---------------- Left rail: inputs · page setup · chat ---------------- */}
         <aside className="no-print flex flex-col lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)]">
-          <nav className="mb-4 grid grid-cols-3 rounded-lg bg-desk-2 p-1" aria-label="Panels">
+          <nav className="mb-5 grid grid-cols-3 rounded-xl border border-rule-soft bg-paper/70 p-1 shadow-[0_1px_0_rgba(22,35,59,0.04)]" aria-label="Panels">
             {(
               [
                 ["inputs", "Inputs", ClipboardList],
@@ -546,10 +574,10 @@ export function Workbench() {
                 key={r}
                 onClick={() => openRail(r)}
                 aria-current={rail === r ? "page" : undefined}
-                className={cx("flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-[13px] transition-colors", rail === r ? "bg-paper font-medium shadow-sm" : "text-muted hover:text-ink")}
+                className={cx("flex items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-[13px] transition-colors", rail === r ? "bg-ink font-medium text-paper" : "text-ink-2 hover:bg-desk-2 hover:text-ink")}
               >
                 <Icon className="size-3.5" aria-hidden /> {label}
-                {r === "chat" && active && (chats[active.key] ?? []).some((m) => m.status === "pending") && <span className="size-1.5 rounded-full bg-blue" aria-label="Pending proposal" />}
+                {r === "chat" && active && (chats[active.key] ?? []).some((m) => m.status === "pending") && <span className="size-1.5 rounded-full bg-hl" aria-label="Pending proposal" />}
               </button>
             ))}
           </nav>
@@ -557,8 +585,8 @@ export function Workbench() {
           <div className={cx("min-h-0 flex-1 lg:overflow-y-auto lg:pr-1 scroll-thin", rail !== "inputs" && "hidden")}>
             {!versions.length && (
               <>
-                <h1 className="text-[24px] font-bold leading-[1.15] tracking-tight">Fit your resume to the job.</h1>
-                <p className="mt-1 text-[14px] text-ink-2">Small, honest edits you approve line by line — in your own template.</p>
+                <h1 className="text-[28px] font-bold leading-[1.08] tracking-[-0.02em]">Fit your resume to the job.</h1>
+                <p className="mt-2 text-[14.5px] leading-relaxed text-ink-2">Small, honest edits you approve line by line, in your own template.</p>
                 {!parsed && !jd && (
                   <button onClick={loadSample} className="mt-1.5 text-sm font-medium text-blue underline-offset-2 hover:underline">
                     Try a sample resume and job
@@ -568,6 +596,9 @@ export function Workbench() {
             )}
 
             <div className={cx("space-y-5", !versions.length && "mt-5")}>
+              {versions.length > 0 && !open.jd ? (
+                <Folded title="Job post" summary={jdSummary} onOpen={() => setOpen((o) => ({ ...o, jd: true }))} disabled={streaming} />
+              ) : (
               <JDInput
                 value={jd}
                 onChange={(v) => {
@@ -585,6 +616,7 @@ export function Workbench() {
                 }}
                 onImport={importJD}
               />
+              )}
               <ResumeUpload
                 parsed={parsed}
                 uploading={upload.busy}
@@ -608,7 +640,11 @@ export function Workbench() {
                   disabled={streaming}
                 />
               )}
-              <Options sections={sections} tone={tone} extra={extra} onSections={setSections} onTone={setTone} onExtra={setExtra} disabled={streaming} />
+              {versions.length > 0 && !open.options ? (
+                <Folded title="Options" summary={optionsSummary} onOpen={() => setOpen((o) => ({ ...o, options: true }))} disabled={streaming} />
+              ) : (
+                <Options sections={sections} tone={tone} extra={extra} onSections={setSections} onTone={setTone} onExtra={setExtra} disabled={streaming} />
+              )}
 
               {confirmed.length > 0 && (
                 <div>
@@ -701,9 +737,9 @@ export function Workbench() {
             </div>
           ) : active ? (
             <div>
-              <VersionStrip versions={versions} activeKey={active.key} onPick={setActiveKey} onRemove={removeVersion} />
-              <div className="no-print mx-auto mb-4 flex max-w-[1000px] flex-wrap items-center gap-2">
-                <nav className="flex flex-wrap rounded-lg bg-desk-2 p-1" aria-label="Result views">
+              <VersionStrip versions={versions} activeKey={active.key} onPick={setActiveKey} onRemove={removeVersion} width={WIDTH[tab]} />
+              <div className={cx("no-print mx-auto mb-4 flex flex-wrap items-end gap-2 border-b border-rule", WIDTH[tab])}>
+                <nav className="-mb-px flex flex-wrap" aria-label="Result views">
                   {(
                     [
                       ["resume", "Resume"],
@@ -718,7 +754,7 @@ export function Workbench() {
                       key={t}
                       onClick={() => setTab(t)}
                       aria-current={tab === t ? "page" : undefined}
-                      className={cx("rounded-md px-2.5 py-1.5 text-[13.5px] transition-colors", tab === t ? "bg-paper font-medium shadow-sm" : "text-muted hover:text-ink")}
+                      className={cx("border-b-2 px-3 pb-2.5 pt-1.5 text-[14px] transition-colors", tab === t ? "border-ink font-semibold text-ink" : "border-transparent text-muted hover:border-rule hover:text-ink")}
                     >
                       {label}
                       {t === "insights" && active.result.scores.match.after?.score != null && <span className="ml-1.5 tabular-nums text-blue">{active.result.scores.match.after.score}</span>}
@@ -728,6 +764,7 @@ export function Workbench() {
                   ))}
                 </nav>
                 <span className="flex-1" />
+                <div className="flex items-center gap-1 pb-2">
                 {tab === "resume" && (
                   <>
                     <Button variant="ghost" size="sm" onClick={() => setHighlightOn((h) => !h)} aria-pressed={highlightOn} title="Highlight job keywords">
@@ -740,7 +777,9 @@ export function Workbench() {
                   </>
                 )}
                 <DownloadMenu getResume={getEffective} opts={exportOpts} original={parsed} />
+                </div>
               </div>
+              {tab !== "insights" && tab !== "compare" && <ScoreStrip version={active} onOpen={() => setTab("insights")} width={WIDTH[tab]} />}
 
               {tab === "resume" && (
                 <>
@@ -781,20 +820,20 @@ export function Workbench() {
             </div>
           ) : parsed ? (
             <div>
-              <div className="no-print mx-auto mb-4 flex max-w-[800px] flex-wrap items-center gap-2">
-                <nav className="flex rounded-lg bg-desk-2 p-1" aria-label="Preview views">
+              <div className="no-print mx-auto mb-4 flex max-w-[800px] flex-wrap items-end gap-x-4 gap-y-1 border-b border-rule">
+                <nav className="-mb-px flex" aria-label="Preview views">
                   {(
                     [
                       ["resume", "Your resume as read"],
-                      ["insights", baseline ? `Fit check · ${baseline.match.before.score ?? "—"}` : "Fit check"],
+                      ["insights", baseline ? `Fit check  ${baseline.match.before.score ?? "—"}` : "Fit check"],
                     ] as ["resume" | "insights", string][]
                   ).map(([t, label]) => (
-                    <button key={t} onClick={() => setPreTab(t)} disabled={t === "insights" && !baseline} className={cx("rounded-md px-3 py-1.5 text-[13.5px] disabled:opacity-50", preTab === t ? "bg-paper font-medium shadow-sm" : "text-muted hover:text-ink")}>
+                    <button key={t} onClick={() => setPreTab(t)} disabled={t === "insights" && !baseline} className={cx("border-b-2 px-3 pb-2.5 pt-1.5 text-[14px] disabled:opacity-40", preTab === t ? "border-ink font-semibold text-ink" : "border-transparent text-muted hover:text-ink")}>
                       {label}
                     </button>
                   ))}
                 </nav>
-                <p className="text-[13px] text-muted">{baseline ? "Highlighted words already match the job." : "Paste the job description to see how well this fits."}</p>
+                <p className="pb-2.5 text-[13px] text-muted">{baseline ? "Highlighted words already match the job." : "Paste the job description to see how well this fits."}</p>
               </div>
               {preTab === "insights" && baseline ? <BaselineInsights match={baseline.match.before} ats={baseline.ats.before} layout={parsed.layout} /> : <OriginalPaper text={parsed.text} re={re} />}
             </div>
@@ -863,21 +902,21 @@ function WritingPlaceholder() {
   );
 }
 
-function VersionStrip({ versions, activeKey, onPick, onRemove }: { versions: Version[]; activeKey: string; onPick: (k: string) => void; onRemove: (k: string) => void }) {
+function VersionStrip({ versions, activeKey, onPick, onRemove, width }: { versions: Version[]; activeKey: string; onPick: (k: string) => void; onRemove: (k: string) => void; width: string }) {
   if (versions.length < 1) return null;
   return (
-    <div className="no-print mx-auto mb-3 flex max-w-[1000px] gap-2 overflow-x-auto pb-1 scroll-thin" role="tablist" aria-label="Versions">
+    <div className={cx("no-print mx-auto mb-3 flex items-center gap-1.5 overflow-x-auto pb-1 scroll-thin", width)} role="tablist" aria-label="Versions">
       {versions.map((v) => {
         const on = v.key === activeKey;
         const s = v.result.scores.match.after?.score;
         return (
-          <div key={v.key} className={cx("group flex shrink-0 items-center rounded-lg border text-[13px]", on ? "border-blue bg-paper" : "border-rule-soft bg-desk-2/60 hover:border-rule")}>
-            <button role="tab" aria-selected={on} onClick={() => onPick(v.key)} className="py-1.5 pl-3 pr-1 text-left">
-              <span className={cx(on ? "font-medium text-ink" : "text-ink-2")}>{v.label}</span>
-              {s != null && <span className="ml-2 tabular-nums text-muted">match {s}</span>}
+          <div key={v.key} className={cx("group flex shrink-0 items-center rounded-full text-[13px] transition-colors", on ? "bg-ink text-paper" : "bg-paper/80 text-ink-2 ring-1 ring-rule-soft hover:ring-rule")}>
+            <button role="tab" aria-selected={on} onClick={() => onPick(v.key)} className="py-1 pl-3 pr-1 text-left">
+              <span className={cx(on && "font-medium")}>{v.label}</span>
+              {s != null && <span className={cx("ml-2 tabular-nums", on ? "text-paper/70" : "text-muted")}>{s}</span>}
             </button>
-            <button onClick={() => onRemove(v.key)} className="mr-1 rounded p-1 text-muted opacity-0 hover:text-red focus:opacity-100 group-hover:opacity-100" aria-label={`Remove ${v.label}`}>
-              <X className="size-3.5" />
+            <button onClick={() => onRemove(v.key)} className={cx("mr-1 rounded-full p-1 opacity-0 focus:opacity-100 group-hover:opacity-100", on ? "hover:bg-paper/15" : "text-muted hover:text-red")} aria-label={`Remove ${v.label}`}>
+              <X className="size-3" />
             </button>
           </div>
         );
@@ -888,28 +927,133 @@ function VersionStrip({ versions, activeKey, onPick, onRemove }: { versions: Ver
 
 function EmptyDesk() {
   const steps = [
-    ["Paste the job description", "The more complete, the better the match — include the requirements."],
-    ["Upload your resume", "PDF, Word or LaTeX. Its template is kept for your downloads."],
-    ["Review, refine, download", "Accept or revert each line, ask the AI for more changes, set margins and fonts, then download."],
+    ["Add the job post", "Paste it or import it from a link. Requirements and nice-to-haves both count."],
+    ["Upload your resume", "PDF, Word or LaTeX. Your template is kept for the downloads."],
+    ["Review and download", "Accept or revert each line, ask the AI for more, then download."],
   ];
   return (
-    <div className="paper mx-auto w-full max-w-[800px] px-6 py-10 sm:px-14 sm:py-14">
-      <h2 className="font-serif text-[26px] font-semibold leading-tight">Your tailored resume appears here.</h2>
-      <p className="mt-2 max-w-prose font-serif text-[16px] text-ink-2">
-        Tailor makes the smallest edits that help: it reorders what matters, tightens bullets in the language of the job, and marks the words the{" "}
-        <mark className="hl">hiring team is scanning for</mark>. Strong lines stay as you wrote them, and it never adds skills you don&apos;t have.
-      </p>
-      <ol className="mt-8 space-y-5">
+    <div className="paper mx-auto w-full max-w-[800px] overflow-hidden">
+      <div className="px-6 pb-8 pt-10 sm:px-14 sm:pt-14">
+        <h2 className="max-w-[22ch] font-serif text-[32px] font-semibold leading-[1.1] tracking-[-0.01em] sm:text-[38px]">Your resume, proofread against the job.</h2>
+        <p className="mt-3 max-w-[58ch] font-serif text-[16.5px] leading-[1.65] text-ink-2">
+          Tailor marks up your resume like an editor would: it tightens the lines that need it, uses the words the hiring team is scanning for, and leaves strong lines alone. It never adds a skill you don&apos;t have.
+        </p>
+      </div>
+
+      <figure className="border-y border-rule-soft bg-desk/40 px-6 py-7 sm:px-14" aria-label="Example edit">
+        <div className="grid gap-x-8 gap-y-3 sm:grid-cols-[minmax(0,1fr)_180px]">
+          <p className="demo font-serif text-[17px] leading-[1.75] text-ink">
+            <span className="text-ink-2">•</span> <del className="demo-del">Responsible for building</del> <ins className="demo-ins">Built</ins>{" "}
+            <mark className="demo-hl" style={{ animationDelay: "1.5s" }}>REST APIs</mark> in Node.js and Express backed by{" "}
+            <mark className="demo-hl" style={{ animationDelay: "1.8s" }}>Postgres</mark>, cutting p95 latency by 35%.
+          </p>
+          <figcaption className="demo-note border-l-2 border-hl pl-3 text-[13px] leading-snug text-ink-2">
+            The job asks for REST APIs and PostgreSQL. Your number stays exactly as you wrote it.
+          </figcaption>
+        </div>
+        <p className="mt-4 font-serif text-[15.5px] leading-[1.7] text-muted">
+          <span>•</span> Wrote unit tests with Jest and set up GitHub Actions CI. <span className="font-sans text-[12.5px] text-green">Kept as written</span>
+        </p>
+      </figure>
+
+      <ol className="grid gap-6 px-6 py-8 sm:grid-cols-3 sm:px-14">
         {steps.map(([title, body], i) => (
-          <li key={title} className="flex gap-4">
-            <span className="grid size-7 shrink-0 place-items-center rounded-full border border-ink/70 font-serif text-sm font-semibold">{i + 1}</span>
-            <div>
-              <div className="font-medium">{title}</div>
-              <p className="text-[14px] text-muted">{body}</p>
-            </div>
+          <li key={title}>
+            <span className="grid size-7 place-items-center rounded-full border border-ink/70 font-serif text-sm font-semibold">{i + 1}</span>
+            <div className="mt-2 font-medium">{title}</div>
+            <p className="mt-0.5 text-[13.5px] leading-snug text-muted">{body}</p>
           </li>
         ))}
       </ol>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+function Steps({ steps }: { steps: { label: string; done: boolean; busy?: boolean; current?: boolean }[] }) {
+  const firstOpen = steps.findIndex((s) => !s.done);
+  return (
+    <ol className="mr-auto hidden items-center gap-1 text-[13px] md:flex" aria-label="Progress">
+      {steps.map((s, i) => {
+        const current = s.current || s.busy || (!steps.some((x) => x.current) && i === firstOpen);
+        return (
+          <li key={s.label} className="flex items-center gap-1" aria-current={current ? "step" : undefined}>
+            {i > 0 && <span className={cx("mx-1 h-px w-5", steps[i - 1].done ? "bg-ink/40" : "bg-rule")} aria-hidden />}
+            <span
+              className={cx(
+                "grid size-5 place-items-center rounded-full text-[11px] font-semibold tabular-nums",
+                s.done ? "bg-ink text-paper" : current ? "bg-hl text-[#16233b]" : "border border-rule text-muted",
+              )}
+            >
+              {s.done ? <Check className="size-3" strokeWidth={3} aria-hidden /> : i + 1}
+            </span>
+            <span className={cx(s.done || current ? "text-ink" : "text-muted", current && "font-medium")}>
+              {s.label}
+              {s.busy && <span className="sr-only"> (in progress)</span>}
+            </span>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+function Folded({ title, summary, onOpen, disabled }: { title: string; summary: string; onOpen: () => void; disabled?: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      disabled={disabled}
+      className="group flex w-full items-center gap-3 rounded-lg border border-rule bg-paper px-3 py-2.5 text-left transition-colors hover:border-ink-2 disabled:opacity-60"
+    >
+      <Check className="size-4 shrink-0 text-green" aria-hidden />
+      <span className="min-w-0 flex-1">
+        <span className="block text-[12.5px] text-muted">{title}</span>
+        <span className="block truncate text-sm font-medium">{summary}</span>
+      </span>
+      <span className="text-[13px] font-medium text-blue group-hover:underline">Edit</span>
+    </button>
+  );
+}
+
+function ScoreStrip({ version, onOpen, width }: { version: Version; onOpen: () => void; width: string }) {
+  const s = version.result.scores;
+  const after = s.match.after ?? s.match.before;
+  const before = s.match.before.score;
+  const st = version.result.stats;
+  const flagged = version.result.guardrails.flagged_bullets;
+  const items: [string, React.ReactNode][] = [
+    [
+      "Keyword match",
+      <>
+        {before != null && after.score != null && before !== after.score && <span className="mr-1 font-normal text-muted line-through decoration-muted/50">{before}</span>}
+        {after.score ?? "—"}
+      </>,
+    ],
+    ["Must-haves", `${after.required_matched ?? 0} of ${after.required_total ?? 0}`],
+    ["ATS readiness", String((s.ats.after ?? s.ats.before).score)],
+    ["Lines edited", st ? `${st.light + st.rewritten + st.new} of ${st.total}` : String(changeCount(version.result.resume).changed)],
+  ];
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className={cx("no-print mx-auto mb-5 flex w-full flex-wrap items-stretch gap-x-6 gap-y-2 rounded-lg px-1 text-left", width)}
+      title="Open insights"
+    >
+      {items.map(([label, value]) => (
+        <span key={label} className="flex items-baseline gap-2">
+          <span className="text-[12.5px] text-muted">{label}</span>
+          <span className="text-[15px] font-semibold tabular-nums">{value}</span>
+        </span>
+      ))}
+      {flagged > 0 && (
+        <span className="flex items-baseline gap-1.5 text-[12.5px] text-red">
+          <span className="size-1.5 translate-y-[-1px] rounded-full bg-red" aria-hidden />
+          {flagged} line{flagged > 1 ? "s" : ""} to check
+        </span>
+      )}
+      <span className="ml-auto self-center text-[12.5px] font-medium text-blue">Details</span>
+    </button>
   );
 }

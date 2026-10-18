@@ -27,6 +27,7 @@
   --amber-wash: #fff4d6;
   --hl: #ffe45c;
   --hl-soft: rgba(255, 228, 92, 0.55);
+  --desk-dot: rgba(22, 35, 59, 0.07);
   --shadow-paper: 0 1px 0 rgba(22, 35, 59, 0.06), 0 12px 32px -12px rgba(22, 35, 59, 0.28);
   color-scheme: light;
 }
@@ -52,6 +53,7 @@
     --amber-wash: #3a3020;
     --hl: #ffe45c;
     --hl-soft: rgba(255, 228, 92, 0.28);
+    --desk-dot: rgba(231, 236, 245, 0.05);
     --shadow-paper: 0 1px 0 rgba(0, 0, 0, 0.3), 0 16px 40px -14px rgba(0, 0, 0, 0.7);
     color-scheme: dark;
   }
@@ -84,6 +86,10 @@ html,
 body {
   background: var(--desk);
   color: var(--ink);
+}
+body {
+  background-image: radial-gradient(var(--desk-dot) 1px, transparent 1px);
+  background-size: 22px 22px;
 }
 
 body {
@@ -127,7 +133,7 @@ body {
 /* Highlighter: slightly ragged like a real marker stroke. */
 mark.hl {
   color: inherit;
-  background: linear-gradient(104deg, transparent 0.4em, var(--hl-soft) 0.5em, var(--hl-soft) 94%, transparent 100%);
+  background: linear-gradient(104deg, transparent 0.05em, var(--hl-soft) 0.15em, var(--hl-soft) 97%, transparent 100%);
   padding: 0 0.12em;
   margin: 0 -0.06em;
   border-radius: 0.3em 0.1em 0.35em 0.15em;
@@ -150,6 +156,49 @@ del.mark-del {
   text-decoration-thickness: 1.5px;
   text-decoration-color: var(--red);
   opacity: 0.85;
+}
+
+/* Empty-state demo: one orchestrated edit — strike, insert, then highlight. */
+.demo-del {
+  color: var(--red);
+  text-decoration: none;
+  background: linear-gradient(var(--red), var(--red)) no-repeat 0 55% / 0 1.5px;
+  animation: demo-strike 500ms 400ms ease-out forwards;
+}
+.demo-ins {
+  text-decoration: none;
+  color: var(--blue-ink);
+  border-bottom: 1.5px solid var(--blue);
+  opacity: 0;
+  animation: demo-fade 350ms 950ms ease-out forwards;
+}
+.demo-hl {
+  color: inherit;
+  padding: 0 0.12em;
+  margin: 0 -0.06em;
+  border-radius: 0.3em 0.1em 0.35em 0.15em;
+  background: linear-gradient(104deg, transparent 0.2em, var(--hl-soft) 0.3em, var(--hl-soft) 96%, transparent 100%) no-repeat 0 0 / 0% 100%;
+  animation: demo-sweep 420ms ease-out forwards;
+}
+.demo-note {
+  opacity: 0;
+  animation: demo-fade 400ms 2.3s ease-out forwards;
+}
+@keyframes demo-strike {
+  to {
+    background-size: 100% 1.5px;
+    opacity: 0.8;
+  }
+}
+@keyframes demo-fade {
+  to {
+    opacity: 1;
+  }
+}
+@keyframes demo-sweep {
+  to {
+    background-size: 100% 100%;
+  }
 }
 
 /* Streaming caret */
@@ -202,6 +251,7 @@ del.mark-del {
 @media print {
   body {
     background: white;
+    background-image: none;
   }
   .no-print {
     display: none !important;
